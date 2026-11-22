@@ -40,6 +40,41 @@ Things you'll notice while the page sits idle are real state changes, not noise:
 
 Both panels are ordinary code you can keep in your own app while developing: `log!`, `state-panel` and `note-change!` in `kitchen_sink.cljs`.
 
+## Two ways to handle events: functions or data
+
+Replicant gives you two kinds of event handler, and the kitchen sink shows both. The **"Two ways to handle events"** tile at the top runs the same counter both ways side by side; tiles marked **events as data** (button group, coffee select, notifications switch, volume slider, tabs, pagination) use data handlers, the rest use functions.
+
+```clojure
+;; 1. Function handler: Replicant calls the function with the DOM event
+[:wa-switch {:on {:change #(swap! state assoc :notify? (.. % -target -checked))}}]
+
+;; 2. Events as data: Replicant passes this vector, untouched, to the one
+;;    function registered with replicant.dom/set-dispatch!
+[:wa-switch {:on {:change [[:store/assoc :notify? :event/target.checked]
+                           [:log "wa-switch" "change" :event/target.checked]]}}]
+```
+
+How the data path works here (`kitchen_sink.cljs`, section *Events as data*):
+
+1. Replicant sees a handler that isn't a function and calls `dispatch!` with the event data and the vector.
+2. `interpolate` replaces placeholders such as `:event/target.checked` or `:event/detail.name` with values from the DOM event (`clojure.walk/postwalk`).
+3. `apply-action` is a **pure reducer** `(state, action) -> state`; all actions of one event are applied in a **single `swap!`**, so one event is one state transition, and the State panel highlights everything it changed.
+4. The applied actions are kept in `:last-action`, so you can watch the data that went through.
+
+| | Function handlers | Events as data |
+|---|---|---|
+| Setup | none | a dispatch function, placeholder substitution, a small action vocabulary |
+| Writing a handler | inline Clojure, full interop, conditionals are natural | pick actions; event values via placeholders |
+| What the view contains | `{:click #object[Function]}`, opaque | `{:click [[:store/inc :data-count] …]}`, plain data |
+| Testing | needs a DOM and a real event | assert on the view's data, and unit-test `apply-action` with plain maps |
+| Logging, undo, replay | add it to every handler | one place: the dispatch function |
+| Crossing the wire | closures can't be serialized | actions are EDN: could come from, or be sent to, the bb server |
+| Best for | one-offs, interop-heavy or conditional logic (e.g. the dialog's `wa-hide` guard) | most UI state changes, especially as an app grows |
+
+They mix freely, even within one `:on` map, so you can start with functions and move handlers to data as patterns repeat.
+
+![Function handler vs. events as data](docs/events-demo.png)
+
 ## Architecture
 
 ```
@@ -61,6 +96,7 @@ Both panels are ordinary code you can keep in your own app while developing: `lo
                  │                                        │
                  ▼                                        │
    <wa-input> <wa-select> <wa-dialog> …  ── events ──► :on handlers
+                                                       (fn → swap!, or data → dispatch! → reduce actions → swap!)
    (Web Awesome custom elements; Lit renders their
     insides in shadow DOM; your code never touches Lit)
 ```
@@ -68,6 +104,7 @@ Both panels are ordinary code you can keep in your own app while developing: `lo
 - **One atom, one render loop.** All UI state is in `state`; `add-watch` re-renders the whole view on every change (and records which keys changed, for the State panel). Replicant diffs and updates only what changed in the DOM.
 - **Views are plain functions returning hiccup.** No component framework, no lifecycle; `(view s)` is pure data in, data out.
 - **Web Awesome components are just HTML elements.** Replicant sets their attributes/properties and attaches native listeners, so standard events (`input`, `change`) and custom ones (`wa-hide`, `wa-tab-show`, …) work the same way.
+- **Handlers are functions or data.** A function handler calls `swap!` itself; a data handler (a vector of actions) goes through `dispatch!`, which applies it to the state with a pure reducer in one `swap!`. See *Two ways to handle events*.
 - **The server is optional.** The whole left column of the diagram runs on any static host; the bb server on the right adds an API, push messages and hot reload.
 
 ## The three modes
@@ -94,6 +131,7 @@ In `app/public/cljs/kitchen_sink.cljs`, top to bottom:
 |---|---|
 | `mode`, `single?`, `server?`, `asset` | How one file adapts to three deliveries (mode flag + asset indirection). |
 | `;; State + helpers`: `state`, `log!`, `on!`, `tile` | The single atom, the event log, a handler helper (`(on! :name tv)` = "store this field's value"), and a layout helper. |
+| `;; Events as data`: `interpolate`, `apply-action`, `dispatch!`, `set-dispatch!` | The data path for event handlers: placeholder substitution, a pure reducer, one `swap!` per event. Compare with `events-tile`, which shows both kinds side by side. |
 | `;; Server integration`: `api!`, `post-profile!`, `connect!`, `reload-cljs!`, `server-tile` | Request/response with EDN over `fetch`, server push over one websocket, and hot reload via `scittle.core.eval_string`. **This is the part to grow into a real app.** |
 | `;; Sections`: `actions`, `forms`, `feedback`, `layout`, `navigation`, `media`, `helpers` | One function per category, one tile per component. Copy the tile for the component you need: it shows the attributes to set and the event to handle. |
 | `state-panel`, `note-change!` | The State panel: sorted keys, and the watcher that diffs old vs. new state to highlight what the last `swap!` changed. |
@@ -102,6 +140,7 @@ In `app/public/cljs/kitchen_sink.cljs`, top to bottom:
 Patterns worth noticing as you read:
 
 - `[:wa-select {:value … :on {:change …}} …]`: attributes and handlers live in one map; there is no adapter layer.
+- Handlers are either functions or vectors of actions; search for `:store/assoc` to see the data ones.
 - `(tile …)` is a **function call**, not `[tile …]`: Replicant renders data, it has no component syntax (that's Reagent).
 - `wa-otp-input` is deliberately **uncontrolled**; every other form control binds `:value` to state (see the comment in `forms`).
 - Methods on components are called on the DOM node: `(.next (el "stepper"))`, `(.create (el "toast") …)`.
@@ -112,7 +151,7 @@ Patterns worth noticing as you read:
 ## Using it as a template
 
 1. **Pick a delivery mode.** Static (`static.html`) if you only need a UI; app (`index.html` + `server.clj`) if you need an API or push; single file if you need one artifact to hand around.
-2. **Keep the skeleton:** the HTML shell (pinned CDN links, icon registration), the mode/asset lines if you keep several modes, `state`, `log!`/`on!` if you like them, the Event log and State panels while you develop (`log!`, `state-panel`, `note-change!`), and the render loop at the bottom. In app mode also keep `api!`, `connect!`, `reload-cljs!` and `server.clj`.
+2. **Keep the skeleton:** the HTML shell (pinned CDN links, icon registration), the mode/asset lines if you keep several modes, `state`, `log!`/`on!` if you like them, the *Events as data* section if you want data handlers (extend the action vocabulary as you go), the Event log and State panels while you develop (`log!`, `state-panel`, `note-change!`), and the render loop at the bottom. In app mode also keep `api!`, `connect!`, `reload-cljs!` and `server.clj`.
 3. **Delete the demo:** the seven section functions, `categories`, `tree-data`, `images`, `markdown-src`, the demo images, `include.html` and `page-demo.html`, and the profile routes in `server.clj`.
 4. **Add your views** as plain functions over `state`, copying the tiles of the components you use from the kitchen sink.
 5. **Add server routes** to `handler` in `server.clj` and call them with `api!`.
@@ -161,7 +200,7 @@ single-file/index.html        GENERATED - don't edit by hand
 docs/GUIDE.md                 how to work with this stack (written for AI assistants; useful for humans)
 skills/scittle-replicant-webawesome/SKILL.md   concise Agent Skill for coding assistants
 test/
-  kitchen_sink_test.py        66 interaction checks (Playwright), for any of the three versions
+  kitchen_sink_test.py        72 interaction checks (Playwright), for any of the three versions
   server_test.py              17 checks: API, websocket, client count, hot reload, single-file and static modes
 bb.edn                        tasks: dev, serve-static, build-single, serve-single
 ```
@@ -171,9 +210,9 @@ bb.edn                        tasks: dev, serve-static, build-single, serve-sing
 ```bash
 bb dev & bb serve-single & bb serve-static &                         # servers: all bb
 pip install playwright && playwright install chromium                 # tests: Python + Playwright
-python3 test/kitchen_sink_test.py http://localhost:8090/index.html   # 66/66
-python3 test/kitchen_sink_test.py http://localhost:8091/index.html   # 66/66
-python3 test/kitchen_sink_test.py http://localhost:8092/static.html  # 66/66
+python3 test/kitchen_sink_test.py http://localhost:8090/index.html   # 72/72
+python3 test/kitchen_sink_test.py http://localhost:8091/index.html   # 72/72
+python3 test/kitchen_sink_test.py http://localhost:8092/static.html  # 72/72
 python3 test/server_test.py                                          # 17/17
 ```
 

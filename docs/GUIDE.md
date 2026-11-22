@@ -1,6 +1,6 @@
 # Building browser UIs with Scittle + Replicant + Web Awesome
 
-A working guide for AI assistants. Everything marked **verified** was exercised in headless Chrome (Playwright) against a 78-component kitchen-sink page; 60/60 interaction checks passed (66/66 in the repo's current suite, which adds State-panel and layout checks), and the published page was also opened on an iPad. Items marked **unverified** are stated as such.
+A working guide for AI assistants. Everything marked **verified** was exercised in headless Chrome (Playwright) against a 78-component kitchen-sink page; 60/60 interaction checks passed (72/72 in the repo's current suite, which adds State-panel, layout and events-as-data checks), and the published page was also opened on an iPad. Items marked **unverified** are stated as such.
 
 Versions tested: Scittle 0.8.33 (with its Replicant plugin), Web Awesome 3.15.0 (MIT, free tier), Font Awesome Free solid SVGs for icons.
 
@@ -150,10 +150,13 @@ Give the element an `:id` and call the method on the DOM node (verified):
 ```
 (Replicant also has lifecycle hooks such as `:replicant/on-mount`; not used/verified in this setup.)
 
-### 4.6 State loop
+### 4.6 Events as data (verified)
+A handler that is not a function is passed unchanged to the function registered with `replicant.dom/set-dispatch!`, called as `(fn [event-data handler-data])`; `event-data` contains `:replicant/trigger` (`:replicant.trigger/dom-event` for DOM events), `:replicant/dom-event` and `:replicant/node`. Placeholders such as `:event/target.value` are a convention you implement (e.g. with `clojure.walk/postwalk`), not a Replicant feature. The kitchen sink's *Events as data* section shows a complete version: placeholders, a pure `apply-action` reducer, and one `swap!` per event. Function and data handlers can be mixed in the same `:on` map.
+
+### 4.7 State loop
 One atom, `add-watch` → `d/render`. Rendering is synchronous on each `swap!`. This was fast enough for a page with all 78 components, including high-frequency events like `wa-reposition` from the split panel.
 
-### 4.7 Multiple Scittle script tags
+### 4.8 Multiple Scittle script tags
 Each `<script type="application/x-scittle">` can define a namespace; later tags can `:require` earlier ones (verified).
 
 ---

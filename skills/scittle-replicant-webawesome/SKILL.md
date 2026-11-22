@@ -70,7 +70,8 @@ Serve over HTTP (any static server, e.g. `bb scripts/serve_static.clj <dir> <por
 7. **Controlled inputs:** bind `:value`/`:checked` to state and update from events - works for every form control **except `wa-otp-input`: leave it uncontrolled** (read `.value` in `input`/`wa-complete`), or typed digits are lost.
 8. **Values are strings**, including `wa-number-input` (`"3"`); parse when you need numbers.
 9. **Dialogs/drawers:** bind `:open` to state; on `wa-hide`, set it false only when `(= (.-target e) (.-currentTarget e))` (child overlays bubble `wa-hide` too).
-10. **Don't use Reagent here.** Scittle's Reagent uses React 18, which drops `change`/`wa-*` events on custom elements, stringifies `false`, and sets `:value` as an attribute. Replicant needs no adapter.
+10. **Two handler styles; both work and mix freely.** Function: `:on {:click #(swap! state ...)}`. Data: `:on {:click [[:store/assoc :open? true]]}` - any non-function handler is passed unchanged to the function registered with `(d/set-dispatch! (fn [event-data actions] ...))`; `event-data` has `:replicant/trigger`, `:replicant/dom-event`, `:replicant/node`. Placeholders like `:event/target.value` are **not** built in: substitute them yourself (`clojure.walk/postwalk`), then apply the actions with a pure reducer in one `swap!`. Prefer data for ordinary state changes (printable, testable, one place to log/undo), functions for interop or conditional logic. Working implementation: the *Events as data* section of the reference `kitchen_sink.cljs`.
+11. **Don't use Reagent here.** Scittle's Reagent uses React 18, which drops `change`/`wa-*` events on custom elements, stringifies `false`, and sets `:value` as an attribute. Replicant needs no adapter.
 
 ## 3. Reading events
 

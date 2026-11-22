@@ -44,6 +44,12 @@
     .state .kv { padding: 1px 4px; border-radius: 4px; transition: background-color .6s ease-out; }
     .state .kv.changed { background: #fff3a3; transition: none; }
     .state .k { color: var(--wa-color-brand-on-quiet); font-weight: 600; }
+    .events-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    pre.code { font: 12px/1.45 var(--wa-font-family-code); background: var(--wa-color-surface-lowered); border-radius: 6px; padding: .5rem .65rem; margin: 0; white-space: pre-wrap; word-break: break-word; }
+    ul.pros { margin: 0; padding-left: 1.2rem; font-size: 14px; }
+    li.pro::marker { content: "+  "; color: var(--wa-color-success-on-quiet); font-weight: 700; }
+    li.con::marker { content: "–  "; color: var(--wa-color-danger-on-quiet); font-weight: 700; }
+    @media (max-width: 1100px) { .events-grid { grid-template-columns: 1fr; } }
     .box { width: 56px; height: 56px; border-radius: 10px; background: var(--wa-color-brand-fill-loud); }
     .io-root { height: 150px; overflow: auto; border: 1px dashed var(--wa-color-surface-border); border-radius: 8px; padding: .5rem; }
     .io-target { padding: 1rem; border-radius: 8px; background: var(--wa-color-neutral-fill-quiet); transition: background .3s; }

@@ -10,6 +10,7 @@
 (ns kitchen-sink
   (:require [replicant.dom :as d]
             [clojure.edn :as edn]
+            [clojure.walk :as walk]
             [clojure.string :as str]))
 
 ;; Bump this and save the file while `bb dev` runs: the page hot-reloads
@@ -45,12 +46,14 @@
          :menu nil :bold? true :form nil :log ()}))
 
 (swap! state update :srv #(merge {:ws "closed" :time nil :clients 0 :saved nil :profiles nil :reloads 0} %))
+(swap! state #(merge {:fn-count 0 :data-count 0 :last-action nil} %))
 
 (def log-size 200)   ; the Event log panel scrolls, so keep a useful history
 
+(defn log-line [tag ev detail] (str tag " · " ev (when (some? detail) (str " → " detail))))
+
 (defn log! [tag ev & [detail]]
-  (swap! state update :log
-         #(take log-size (cons (str tag " · " ev (when (some? detail) (str " → " detail))) %))))
+  (swap! state update :log #(take log-size (cons (log-line tag ev detail) %))))
 
 (defn tv [e] (.. e -target -value))
 (defn el [id] (js/document.getElementById id))
@@ -58,10 +61,11 @@
 
 (defn tile
   "A card for one demo. `tags` are the Web Awesome elements it exercises."
-  [{:keys [tags wide? exp?]} & body]
+  [{:keys [tags wide? exp? data?]} & body]
   (into [:section {:class (if wide? "tile wide" "tile") :data-tags (str/join " " tags)}
          [:h3 (str/join " · " (map #(str "<" % ">") tags))
-          (when exp? [:span.exp " experimental"])]]
+          (when exp? [:span.exp " experimental"])
+          (when data? [:wa-badge {:variant "success" :appearance "outlined" :style {:margin-left ".5rem"}} "events as data"])]]
         body))
 
 (def tree-data
@@ -78,6 +82,49 @@
 
 (def markdown-src
   "### Rendered by `<wa-markdown>`\n\nThis block is **Markdown** inside a `script type=\"text/markdown\"`, emitted by Replicant.\n\n- hiccup in, custom elements out\n- no build step\n- one atom of state")
+
+;; ---------------------------------------------------------------------------
+;; Events as data. Replicant lets an :on handler be plain data instead of a
+;; function: it passes that data, untouched, to the one function registered with
+;; replicant.dom/set-dispatch!. Below: a tiny action vocabulary, placeholder
+;; substitution for values that only exist at event time, and a PURE reducer
+;; (state, action) -> state, applied in a single swap!.
+;;
+;;   [:store/assoc k v]  [:store/assoc-in path v]  [:store/inc k]  [:log tag ev detail]
+;;
+;; Placeholders, replaced from the DOM event before the actions run:
+(defn interpolate [e actions]
+  (walk/postwalk
+   (fn [x]
+     (case x
+       :event/target.value     (.. e -target -value)
+       :event/target.checked   (.. e -target -checked)
+       :event/target.page      (.. e -target -page)
+       :event/target.active    (.. e -target -active)
+       :event/detail.name      (.. e -detail -name)
+       :event/detail.index     (.. e -detail -index)
+       :event/detail.item.value (.. e -detail -item -value)
+       x))
+   actions))
+
+(defn apply-action
+  "Pure: one action applied to the state map. Unit-testable without a browser."
+  [s [op & args :as action]]
+  (case op
+    :store/assoc    (let [[k v] args] (assoc s k v))
+    :store/assoc-in (let [[path v] args] (assoc-in s path v))
+    :store/inc      (update s (first args) (fnil inc 0))
+    :log            (let [[tag ev detail] args]
+                      (update s :log #(take log-size (cons (log-line tag ev detail) %))))
+    (update s :log #(cons (log-line "dispatch" "unknown action" (pr-str action)) %))))
+
+(defn dispatch! [event-data actions]
+  (when (= :replicant.trigger/dom-event (:replicant/trigger event-data))
+    (let [actions (interpolate (:replicant/dom-event event-data) actions)]
+      ;; one swap! = one state transition, however many actions
+      (swap! state (fn [s] (reduce apply-action (assoc s :last-action actions) actions))))))
+
+(d/set-dispatch! dispatch!)
 
 ;; ---------------------------------------------------------------------------
 ;; Server integration (app mode). This is the part to grow into a real app:
@@ -166,6 +213,41 @@
              [:tr {:replicant/key (:id p)} [:td (:id p)] [:td (:name p)] [:td (:email p)] [:td (:qty p)] [:td (:saved-at p)]])]])])))
 
 ;; ---------------------------------------------------------------------------
+;; Demo: the same counter with both kinds of handler, side by side.
+(def fn-button-on   {:click #(swap! state update :fn-count inc)})
+(def data-button-on {:click [[:store/inc :data-count] [:log "events-demo" "click" "data handler"]]})
+
+(defn events-tile [s]
+  [:section.tile.wide {:data-tags "events-demo" :id "events-demo"}
+   [:h3 "Two ways to handle events · function handlers vs. events as data"]
+   [:div.events-grid
+    [:div.stack
+     [:strong "Function handler"]
+     [:div.row [:wa-button {:id "fn-inc" :on fn-button-on} "+1"] [:span {:id "fn-count"} (str "count " (:fn-count s))]]
+     [:div.muted "The handler in the view:"]
+     [:pre.code {:id "fn-on"} (pr-str fn-button-on)]
+     [:ul.pros
+      [:li.pro "Simplest: write the code inline, full Clojure + JS interop"]
+      [:li.pro "Nothing to set up; conditionals are natural (see the dialog's wa-hide guard)"]
+      [:li.con "Opaque: a closure can't be printed, compared, stored or sent anywhere"]
+      [:li.con "Testing it needs a DOM and a real event"]]]
+    [:div.stack
+     [:strong "Events as data"]
+     [:div.row [:wa-button {:id "data-inc" :variant "brand" :on data-button-on} "+1"] [:span {:id "data-count"} (str "count " (:data-count s))]]
+     [:div.muted "The handler in the view:"]
+     [:pre.code {:id "data-on"} (pr-str data-button-on)]
+     [:ul.pros
+      [:li.pro "The whole view is data: printable, comparable, testable without a browser"]
+      [:li.pro "All effects go through one dispatch: one place to log, undo, replay, or send to a server"]
+      [:li.pro "Actions are EDN, so they could come from (or go to) the bb server over the websocket"]
+      [:li.con "Needs a small interpreter: dispatch, placeholders, an action vocabulary"]
+      [:li.con "Indirection: event values come in via placeholders like :event/target.value"]]]]
+   [:div.muted {:style {:margin-top ".75rem"}} "Last actions passed to dispatch (after placeholder substitution):"]
+   [:pre.code {:id "last-action"} (if-let [a (:last-action s)] (pr-str a) "— click a tile marked \"events as data\" —")]
+   [:p.muted "Tiles marked " [:wa-badge {:variant "success" :appearance "outlined"} "events as data"]
+    " use data handlers; the rest use functions. Both kinds can be mixed, even in one " [:code ":on"] " map."]])
+
+;; ---------------------------------------------------------------------------
 ;; Sections
 (defn actions [s]
   [[tile {:tags ["wa-button"]}
@@ -180,13 +262,13 @@
       [:wa-button {:loading true :variant "brand"} "Loading"]
       [:wa-button {:disabled true} "Disabled"]]]]
 
-   [tile {:tags ["wa-button-group"]}
+   [tile {:tags ["wa-button-group"] :data? true}
     [:wa-button-group {:label "Alignment"}
      (for [a ["left" "center" "right"]]
        [:wa-button {:replicant/key a :id (str "align-" a)
                     :appearance (if (= a (:align s)) "accent" "outlined")
                     :variant "brand"
-                    :on {:click #(do (swap! state assoc :align a) (log! "wa-button-group" "select" a))}}
+                    :on {:click [[:store/assoc :align a] [:log "wa-button-group" "select" a]]}}
         [:wa-icon {:name (str "align-" a)}]])]
     [:p.muted (str "Selected: " (:align s))]]
 
@@ -248,10 +330,11 @@
       (when-let [f (:form s)]
         [:div.muted {:id "form-result"} (str "FormData: " (pr-str f))])]]]
 
-   [tile {:tags ["wa-select" "wa-option"]}
+   [tile {:tags ["wa-select" "wa-option"] :data? true}
     [:div.stack
      [:wa-select {:id "f-coffee" :label "Coffee" :value (:coffee s)
-                  :on {:change #(do (swap! state assoc :coffee (tv %)) (log! "wa-select" "change" (tv %)))}}
+                  :on {:change [[:store/assoc :coffee :event/target.value]
+                                [:log "wa-select" "change" :event/target.value]]}}
       [:wa-option {:value "espresso"} [:wa-icon {:slot "start" :name "mug-hot"}] "Espresso"]
       [:wa-option {:value "latte"} "Latte"]
       [:wa-option {:value "cold-brew"} "Cold brew"]]
@@ -278,9 +361,9 @@
                                        (log! "wa-checkbox-group" "change" (str i "=" c)))}}
          (str/capitalize i)])]
      [:div [:wa-checkbox {:indeterminate true} "Indeterminate"]]
-     [:div [:wa-switch {:id "f-notify" :checked (:notify? s)
-                  :on {:change #(do (swap! state assoc :notify? (.. % -target -checked))
-                                    (log! "wa-switch" "change" (.. % -target -checked)))}}
+     [:div [:wa-switch {:id "f-notify" :checked (:notify? s)   ; events as data
+                  :on {:change [[:store/assoc :notify? :event/target.checked]
+                                [:log "wa-switch" "change" :event/target.checked]]}}
       "Notifications"]]]]
 
    [tile {:tags ["wa-radio-group" "wa-radio"]}
@@ -296,10 +379,11 @@
       [:wa-radio {:appearance "button" :value "pro"} "Pro"]
       [:wa-radio {:appearance "button" :value "team"} "Team"]]]]
 
-   [tile {:tags ["wa-slider"]}
+   [tile {:tags ["wa-slider"] :data? true}
     [:div.stack
      [:wa-slider {:id "f-volume" :label "Volume" :min 0 :max 100 :value (:volume s) :with-tooltip true
-                  :on {:input (on! :volume tv) :change #(log! "wa-slider" "change" (tv %))}}]
+                  :on {:input  [[:store/assoc :volume :event/target.value]]
+                       :change [[:log "wa-slider" "change" :event/target.value]]}}]
      [:wa-slider {:id "f-range" :label "Price range" :range true :min 0 :max 100
                   :min-value (first (:range s)) :max-value (second (:range s)) :with-markers true :step 10
                   :on {:change #(let [t (.-target %) r [(.-minValue t) (.-maxValue t)]]
@@ -451,10 +535,10 @@
      [:wa-breadcrumb-item [:wa-icon {:slot "start" :name "folder"}] "Projects"]
      [:wa-breadcrumb-item "Kitchen sink"]]]
 
-   [tile {:tags ["wa-tab-group" "wa-tab" "wa-tab-panel"]}
+   [tile {:tags ["wa-tab-group" "wa-tab" "wa-tab-panel"] :data? true}
     [:wa-tab-group {:id "tabs" :active (:tab s)
-                    :on {:wa-tab-show #(do (swap! state assoc :tab (.. % -detail -name))
-                                           (log! "wa-tab-group" "wa-tab-show" (.. % -detail -name)))}}
+                    :on {:wa-tab-show [[:store/assoc :tab :event/detail.name]
+                                       [:log "wa-tab-group" "wa-tab-show" :event/detail.name]]}}
      [:wa-tab {:slot "nav" :panel "general"} "General"]
      [:wa-tab {:slot "nav" :panel "advanced"} "Advanced"]
      [:wa-tab {:slot "nav" :panel "disabled" :disabled true} "Disabled"]
@@ -472,10 +556,10 @@
           (map #(tree-item % 0) tree-data))
     [:p.muted (str "Selected: " (if (seq (:tree-sel s)) (str/join ", " (:tree-sel s)) "none"))]]
 
-   [tile {:tags ["wa-pagination"]}
+   [tile {:tags ["wa-pagination"] :data? true}
     [:wa-pagination {:id "pager" :total 237 :page-size 10 :page (:page s) :with-summary true :label "Results"
-                     :on {:wa-page-change #(do (swap! state assoc :page (.. % -target -page))
-                                               (log! "wa-pagination" "wa-page-change" (.. % -target -page)))}}]
+                     :on {:wa-page-change [[:store/assoc :page :event/target.page]
+                                           [:log "wa-pagination" "wa-page-change" :event/target.page]]}}]
     [:p.muted (str "Page " (:page s))]]
 
    [tile {:tags ["wa-stepper" "wa-step"]}
@@ -639,7 +723,7 @@
 (defn view [s]
   [:div.layout
    [:main
-    [:div.grid (server-tile s)]
+    [:div.grid (server-tile s) (events-tile s)]
     (for [[title f] categories]
       [:div {:replicant/key title}
        [:div.cat [:h2 title]]

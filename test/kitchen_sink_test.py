@@ -1,4 +1,4 @@
-"""Interaction suite: 66 checks across the Web Awesome components, driven like a user would.
+"""Interaction suite: 72 checks across the Web Awesome components, driven like a user would.
 
 Usage (a server running, see README):
     python3 test/kitchen_sink_test.py http://localhost:8090/index.html     # app version (bb dev)
@@ -254,13 +254,36 @@ async def main():
                               lambda ks: (ks == sorted(ks) and len(ks) > 20, f"{len(ks)} keys")))
         async def flip():
             await pg.locator("#f-notify").scroll_into_view_if_needed(); await pg.locator("#f-notify").click(); await W(200)
-        await step("state panel: highlights exactly the changed key", flip,
+        # the switch uses a data handler, so its transition also records :last-action
+        await step("state panel: highlights exactly the changed keys", flip,
                    lambda: _r(ev("[...document.querySelectorAll('#state .kv.changed')].map(e=>e.dataset.key)"),
-                              lambda ks: (ks == [":notify?"], ks)))
+                              lambda ks: (sorted(ks) == [":last-action", ":notify?"], ks)))
         # (in app mode the server tick legitimately re-highlights :srv every 5 s)
         await step("state panel: highlight clears", lambda: W(2600),
                    lambda: _r(ev("[...document.querySelectorAll('#state .kv.changed')].map(e=>e.dataset.key)"),
                               lambda ks: (":notify?" not in ks and set(ks) <= {":srv"}, ks)))
+
+        # ---------------------------------------------------------------- events: functions vs data
+        async def fn_inc():
+            await pg.locator("#fn-inc").scroll_into_view_if_needed(); await click("#fn-inc")
+        await step("events demo: function handler counts", fn_inc,
+                   lambda: _r(S(), lambda s: (s["fn-count"] == 1, s["fn-count"])))
+        await step("events demo: data handler counts", lambda: click("#data-inc"),
+                   lambda: _r(S(), lambda s: (s["data-count"] == 1, s["data-count"])))
+        await step("events demo: one data event = one transition, all its keys highlighted", lambda: W(10),
+                   lambda: _r(ev("[...document.querySelectorAll('#state .kv.changed')].map(e=>e.dataset.key)"),
+                              lambda ks: ({":data-count", ":last-action"} <= set(ks), ks)))
+        await step("events demo: data handler prints as data, fn handler as a function", lambda: W(10),
+                   lambda: _r(ev("[document.getElementById('data-on').textContent, document.getElementById('fn-on').textContent]"),
+                              lambda v: (v[0].startswith("{:click [[:store/inc :data-count]") and "[:store" not in v[1], v)))
+        await step("events demo: dispatch received the exact action data", lambda: W(10),
+                   lambda: _r(ev("document.getElementById('last-action').textContent"),
+                              lambda t: (t == '[[:store/inc :data-count] [:log "events-demo" "click" "data handler"]]', t)))
+        async def page_data():
+            await click("#pager >> button:has-text('7')")   # the wa-pagination host has a 0x0 box; click scrolls the button itself
+        await step("events as data: placeholders filled from the event (pagination)", page_data,
+                   lambda: _r(ev("document.getElementById('last-action').textContent"),
+                              lambda t: (t == '[[:store/assoc :page 7] [:log "wa-pagination" "wa-page-change" 7]]', t)))
 
         # ---------------------------------------------------------------- side panels stay usable
         async def to_bottom():
