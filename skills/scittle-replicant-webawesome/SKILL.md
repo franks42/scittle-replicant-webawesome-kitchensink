@@ -125,5 +125,5 @@ document.querySelectorAll(':not(:defined)').length === 0   // every <wa-*> upgra
 ```
 
 - No console errors.
-- Click through each interactive control and confirm state changed (expose `window.__state = () => clj->js @state` while developing, or show a state panel).
+- Click through each interactive control and confirm state changed (while developing, expose it with `(set! (.-__state js/window) #(clj->js @state))`, or render a state panel as the reference repo does).
 - With Playwright: selectors pierce shadow DOM (`#name input`, `[part~=track]`); find part names with `[...el.shadowRoot.querySelectorAll('[part]')].map(x => x.getAttribute('part'))`; scroll into view before coordinate clicks; select by text, not `[value=…]`.
