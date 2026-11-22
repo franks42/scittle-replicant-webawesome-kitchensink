@@ -2,6 +2,7 @@
 
 **Live demos:** [single file](https://franks42.github.io/scittle-replicant-webawesome-kitchensink/single-file/) · [HTML + separate .cljs](https://franks42.github.io/scittle-replicant-webawesome-kitchensink/app/public/static.html)  
 **Guide:** [docs/GUIDE.md](docs/GUIDE.md) (also on the site: [GUIDE.html](https://franks42.github.io/scittle-replicant-webawesome-kitchensink/docs/GUIDE.html))
+**For AI coding assistants:** [skills/scittle-replicant-webawesome/SKILL.md](skills/scittle-replicant-webawesome/SKILL.md), a short, directive skill (template, rules, event table, traps, verification); `docs/GUIDE.md` is the long version with the reasoning and test evidence.
 
 Browser UIs in ClojureScript **without React, a bundler, or a build step**:
 
@@ -158,6 +159,7 @@ scripts/
   serve_static.clj            tiny static file server (bb + http-kit) used by serve-single and serve-static
 single-file/index.html        GENERATED - don't edit by hand
 docs/GUIDE.md                 how to work with this stack (written for AI assistants; useful for humans)
+skills/scittle-replicant-webawesome/SKILL.md   concise Agent Skill for coding assistants
 test/
   kitchen_sink_test.py        66 interaction checks (Playwright), for any of the three versions
   server_test.py              17 checks: API, websocket, client count, hot reload, single-file and static modes
