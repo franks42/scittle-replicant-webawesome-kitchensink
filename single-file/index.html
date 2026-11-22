@@ -34,9 +34,13 @@
     .row { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
     .stack > * + * { margin-top: .75rem; }
     .muted { color: var(--wa-color-text-quiet); font-size: 13px; }
-    .side { position: sticky; top: 1rem; }
-    .log { font: 12px/1.5 var(--wa-font-family-code); background: #111; color: #9ef09e; border-radius: 10px; padding: .75rem; min-height: 280px; white-space: pre-wrap; }
-    .state { font: 11px/1.45 var(--wa-font-family-code); background: var(--wa-color-surface-default); border: 1px solid var(--wa-color-surface-border); border-radius: 10px; padding: .75rem; white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto; }
+    /* Right column: sticky and exactly one viewport high; log and state share it and scroll independently */
+    .side { position: sticky; top: 1rem; height: calc(100vh - 2rem); display: flex; flex-direction: column; min-height: 0; }
+    .side h3 { flex: none; }
+    .side .log { flex: 2 1 0; min-height: 0; overflow-y: auto; }
+    .side .state { flex: 3 1 0; min-height: 0; overflow-y: auto; position: relative; }
+    .log { font: 12px/1.5 var(--wa-font-family-code); background: #111; color: #9ef09e; border-radius: 10px; padding: .75rem; white-space: pre-wrap; }
+    .state { font: 11px/1.45 var(--wa-font-family-code); background: var(--wa-color-surface-default); border: 1px solid var(--wa-color-surface-border); border-radius: 10px; padding: .75rem; white-space: pre-wrap; word-break: break-word; }
     .state .kv { padding: 1px 4px; border-radius: 4px; transition: background-color .6s ease-out; }
     .state .kv.changed { background: #fff3a3; transition: none; }
     .state .k { color: var(--wa-color-brand-on-quiet); font-weight: 600; }
@@ -54,7 +58,7 @@
     .lb-thumbs img { border-radius: 6px; cursor: zoom-in; }
     wa-scroller table { border-collapse: collapse; white-space: nowrap; font-size: 13px; }
     wa-scroller td, wa-scroller th { border: 1px solid var(--wa-color-surface-border); padding: .35rem .6rem; text-align: left; }
-    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .side { position: static; } }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .side { position: static; height: auto; } .side .log, .side .state { flex: none; height: 260px; } }
   </style>
 
   <script src="https://cdn.jsdelivr.net/npm/scittle@0.8.33/dist/scittle.js"></script>
@@ -119,9 +123,11 @@ window.KS_ASSETS = {"dusk-thumb":"data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQA
 
 (swap! state update :srv #(merge {:ws "closed" :time nil :clients 0 :saved nil :profiles nil :reloads 0} %))
 
+(def log-size 200)   ; the Event log panel scrolls, so keep a useful history
+
 (defn log! [tag ev & [detail]]
   (swap! state update :log
-         #(take 16 (cons (str tag " · " ev (when (some? detail) (str " → " detail))) %))))
+         #(take log-size (cons (str tag " · " ev (when (some? detail) (str " → " detail))) %))))
 
 (defn tv [e] (.. e -target -value))
 (defn el [id] (js/document.getElementById id))
@@ -725,6 +731,16 @@ window.KS_ASSETS = {"dusk-thumb":"data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQA
 (def root (js/document.getElementById "app"))
 (defn render! [] (d/render root (view @state)))
 
+(defn scroll-to-change! []
+  (when-let [row (js/document.querySelector "#state .kv.changed")]
+    (let [panel (.-parentElement row)            ; .state is position:relative
+          top (.-offsetTop row)
+          bottom (+ top (.-offsetHeight row))]
+      (cond (< top (.-scrollTop panel))
+            (set! (.-scrollTop panel) (- top 8))
+            (> bottom (+ (.-scrollTop panel) (.-clientHeight panel)))
+            (set! (.-scrollTop panel) (+ (- bottom (.-clientHeight panel)) 8))))))
+
 (defn note-change!
   "Remember which top-level keys the last swap! changed; clear the highlight
    after a moment unless another change came in."
@@ -733,6 +749,9 @@ window.KS_ASSETS = {"dusk-thumb":"data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQA
     (when (seq (disj ks :log :form))
       (let [id (inc (:id @last-change))]
         (reset! last-change {:keys ks :id id})
+        ;; after this render, bring the first highlighted row into view inside the
+        ;; State panel (scrolls only the panel, never the page)
+        (js/setTimeout scroll-to-change! 0)
         (js/setTimeout #(when (= id (:id @last-change))
                           (swap! last-change assoc :keys #{})
                           (render!))

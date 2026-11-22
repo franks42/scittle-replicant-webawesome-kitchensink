@@ -1,8 +1,9 @@
-"""Interaction suite: 63 checks across the Web Awesome components, driven like a user would.
+"""Interaction suite: 66 checks across the Web Awesome components, driven like a user would.
 
 Usage (a server running, see README):
-    python3 test/kitchen_sink_test.py http://localhost:8090/index.html     # app version
-    python3 test/kitchen_sink_test.py http://localhost:8091/index.html     # single-file version
+    python3 test/kitchen_sink_test.py http://localhost:8090/index.html     # app version (bb dev)
+    python3 test/kitchen_sink_test.py http://localhost:8091/index.html     # single-file version (bb serve-single)
+    python3 test/kitchen_sink_test.py http://localhost:8092/static.html    # static version (bb serve-static)
 Optional env: KS_PROXY=http://host:port (route CDN traffic through a proxy), KS_CHROME=/path/to/chrome,
               KS_SCREENSHOT=after.png (save a full-page screenshot at the end)
 Requires: pip install playwright && playwright install chromium
@@ -260,6 +261,34 @@ async def main():
         await step("state panel: highlight clears", lambda: W(2600),
                    lambda: _r(ev("[...document.querySelectorAll('#state .kv.changed')].map(e=>e.dataset.key)"),
                               lambda ks: (":notify?" not in ks and set(ks) <= {":srv"}, ks)))
+
+        # ---------------------------------------------------------------- side panels stay usable
+        async def to_bottom():
+            await ev("window.scrollTo(0, document.body.scrollHeight)"); await W(400)
+        await step("side panels visible at page bottom", to_bottom,
+                   lambda: _r(ev("""['log','state'].map(id=>{const r=document.getElementById(id).getBoundingClientRect();
+                                     return r.top>=0 && r.bottom<=window.innerHeight && r.height>80})"""),
+                              lambda v: (v == [True, True], v)))
+        await step("event log keeps history and scrolls", lambda: W(10),
+                   lambda: _r(ev("(()=>{const l=document.getElementById('log');return [l.innerText.split('\\n').length, l.scrollHeight>l.clientHeight]})()"),
+                              lambda v: (v[0] > 16 and v[1], f"{v[0]} lines, scrollable={v[1]}")))
+        vis = """(k)=>{const p=document.getElementById('state'),r=p.querySelector(`[data-key="${k}"]`);
+                    const a=r.getBoundingClientRect(),b=p.getBoundingClientRect();return a.top>=b.top-1&&a.bottom<=b.bottom+1}"""
+        async def late_key():
+            await ev("document.getElementById('state').scrollTop = 0"); await W(100)
+            before = await pg.evaluate(vis, ":ticker")
+            await click("#ticker-add")          # changes :ticker, near the end of the sorted keys
+            return before
+        async def late_check():
+            v = await pg.evaluate("""(()=>{const p=document.getElementById('state');return [
+                [...p.querySelectorAll('.kv.changed')].map(e=>e.dataset.key), p.scrollTop]})()""")
+            now = await pg.evaluate(vis, ":ticker")
+            return (":ticker" in v[0] and now and v[1] > 0, f"highlighted={v[0]} visible={now} scrollTop={v[1]}")
+        async def late_step():
+            before = await late_key()
+            if before:
+                raise RuntimeError(":ticker already visible before the change; viewport too tall to exercise scrolling")
+        await step("state panel scrolls changed row into view", late_step, late_check)
 
         if os.environ.get("KS_SCREENSHOT"): await pg.screenshot(path=os.environ["KS_SCREENSHOT"], full_page=True)
         passed = sum(1 for r in results if r[1])

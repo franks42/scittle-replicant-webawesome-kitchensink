@@ -1,7 +1,7 @@
 """Server-mode checks for the app version (bb dev) plus a single-file sanity check.
 
 Usage (servers running: `bb dev` on 8090, `bb serve-single` on 8091, and any static
-server on app/public for static.html, e.g. `cd app/public && python3 -m http.server 8092`):
+server on app/public for static.html: `bb serve-static`):
     python3 test/server_test.py [app_url] [single_url] [static_url]
 Optional env: KS_PROXY=http://host:port  (route CDN traffic through a proxy)
 Requires: pip install playwright && playwright install chromium (or set KS_CHROME to a Chrome binary)

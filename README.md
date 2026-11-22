@@ -25,8 +25,10 @@ It is **not a library and not a starter app you should ship as-is.** Treat it as
 
 The two panels on the right are the best way to learn how the page works. Click, type or drag anything and watch both:
 
-- **Event log** (newest first): which handler fired and with what value, e.g. `wa-button-group · select → right` or `wa-dialog · wa-hide`. That tells you which DOM event a component emits and what you read from it.
-- **State** (one row per key, sorted): the whole app state, with the keys the last `swap!` changed **highlighted for two seconds**. That tells you exactly what your handler changed.
+- **Event log** (newest first, last 200 events, scrollable): which handler fired and with what value, e.g. `wa-button-group · select → right` or `wa-dialog · wa-hide`. That tells you which DOM event a component emits and what you read from it.
+- **State** (one row per key, sorted, scrollable): the whole app state, with the keys the last `swap!` changed **highlighted for two seconds**; if a changed key is scrolled out of view, the panel scrolls to it. That tells you exactly what your handler changed.
+
+Both panels sit in a column that stays fixed beside the page and is exactly one screen high, so you can scroll to any component and still see the log and the state while you use it.
 
 So every interaction shows the full loop: **event → handler → `swap!` → changed keys → re-render**. In the screenshot above, clicking the right-align button logged `select → right` and highlighted `:align "right"`.
 
@@ -123,13 +125,13 @@ bb dev                 # http://localhost:8090
 
 # Single-file version
 bb build-single        # regenerate single-file/index.html from app/
-bb serve-single        # http://localhost:8091   (or: cd single-file && python3 -m http.server)
+bb serve-single        # http://localhost:8091
 
 # HTML + separate .cljs, no server features
-cd app/public && python3 -m http.server 8092    # http://localhost:8092/static.html
+bb serve-static        # http://localhost:8092/static.html
 ```
 
-Requires [babashka](https://babashka.org). The browser loads Web Awesome, Scittle and Font Awesome icons from pinned jsdelivr URLs; no npm install. A page must be served over HTTP (`file://` won't load the ES modules).
+Requires only [babashka](https://babashka.org) for all three modes; every server here is a bb script. The browser loads Web Awesome, Scittle and Font Awesome icons from pinned jsdelivr URLs; no npm install. A page must be served over HTTP (`file://` won't load the ES modules).
 
 ## The app server in detail
 
@@ -153,28 +155,27 @@ app/
   public/img/, include.html, page-demo.html   demo assets
 scripts/
   build_single.clj            app/ -> single-file/index.html (inline cljs, embed assets)
-  serve_static.clj            tiny static server for single-file/
+  serve_static.clj            tiny static file server (bb + http-kit) used by serve-single and serve-static
 single-file/index.html        GENERATED - don't edit by hand
 docs/GUIDE.md                 how to work with this stack (written for AI assistants; useful for humans)
 test/
-  kitchen_sink_test.py        63 interaction checks (Playwright), for any of the three versions
+  kitchen_sink_test.py        66 interaction checks (Playwright), for any of the three versions
   server_test.py              17 checks: API, websocket, client count, hot reload, single-file and static modes
-bb.edn                        tasks: dev, build-single, serve-single
+bb.edn                        tasks: dev, serve-static, build-single, serve-single
 ```
 
 ## Tests
 
 ```bash
-pip install playwright && playwright install chromium
-bb dev & bb serve-single &
-python3 test/kitchen_sink_test.py http://localhost:8090/index.html   # 63/63
-python3 test/kitchen_sink_test.py http://localhost:8091/index.html   # 63/63
-cd app/public && python3 -m http.server 8092 &
-python3 test/kitchen_sink_test.py http://localhost:8092/static.html  # 63/63
+bb dev & bb serve-single & bb serve-static &                         # servers: all bb
+pip install playwright && playwright install chromium                 # tests: Python + Playwright
+python3 test/kitchen_sink_test.py http://localhost:8090/index.html   # 66/66
+python3 test/kitchen_sink_test.py http://localhost:8091/index.html   # 66/66
+python3 test/kitchen_sink_test.py http://localhost:8092/static.html  # 66/66
 python3 test/server_test.py                                          # 17/17
 ```
 
-Optional env: `KS_CHROME=/path/to/chrome`, `KS_PROXY=http://host:port`.
+The servers are all bb; the browser tests are the one part that needs Python (Playwright). Optional env: `KS_CHROME=/path/to/chrome`, `KS_PROXY=http://host:port`.
 
 ## Things worth knowing
 

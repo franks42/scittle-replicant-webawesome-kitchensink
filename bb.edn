@@ -1,7 +1,9 @@
 {:tasks
- {dev          {:doc  "App server: static files, EDN API, websocket push, hot reload (PORT, default 8090)"
+ {dev          {:doc  "App mode: app/public/index.html with EDN API, websocket push, hot reload (PORT, default 8090)"
                 :task (shell {:dir "app"} "bb server.clj")}
+  serve-static {:doc  "Static mode: serve app/public/ - open /static.html (PORT, default 8092)"
+                :task (shell "bb scripts/serve_static.clj app/public 8092")}
   build-single {:doc  "Generate single-file/index.html from app/ (inlined cljs + embedded assets)"
                 :task (load-file "scripts/build_single.clj")}
-  serve-single {:doc  "Serve single-file/ statically (PORT, default 8091)"
-                :task (load-file "scripts/serve_static.clj")}}}
+  serve-single {:doc  "Single-file mode: serve single-file/ (PORT, default 8091)"
+                :task (shell "bb scripts/serve_static.clj single-file 8091")}}}

@@ -46,9 +46,11 @@
 
 (swap! state update :srv #(merge {:ws "closed" :time nil :clients 0 :saved nil :profiles nil :reloads 0} %))
 
+(def log-size 200)   ; the Event log panel scrolls, so keep a useful history
+
 (defn log! [tag ev & [detail]]
   (swap! state update :log
-         #(take 16 (cons (str tag " · " ev (when (some? detail) (str " → " detail))) %))))
+         #(take log-size (cons (str tag " · " ev (when (some? detail) (str " → " detail))) %))))
 
 (defn tv [e] (.. e -target -value))
 (defn el [id] (js/document.getElementById id))
@@ -652,6 +654,16 @@
 (def root (js/document.getElementById "app"))
 (defn render! [] (d/render root (view @state)))
 
+(defn scroll-to-change! []
+  (when-let [row (js/document.querySelector "#state .kv.changed")]
+    (let [panel (.-parentElement row)            ; .state is position:relative
+          top (.-offsetTop row)
+          bottom (+ top (.-offsetHeight row))]
+      (cond (< top (.-scrollTop panel))
+            (set! (.-scrollTop panel) (- top 8))
+            (> bottom (+ (.-scrollTop panel) (.-clientHeight panel)))
+            (set! (.-scrollTop panel) (+ (- bottom (.-clientHeight panel)) 8))))))
+
 (defn note-change!
   "Remember which top-level keys the last swap! changed; clear the highlight
    after a moment unless another change came in."
@@ -660,6 +672,9 @@
     (when (seq (disj ks :log :form))
       (let [id (inc (:id @last-change))]
         (reset! last-change {:keys ks :id id})
+        ;; after this render, bring the first highlighted row into view inside the
+        ;; State panel (scrolls only the panel, never the page)
+        (js/setTimeout scroll-to-change! 0)
         (js/setTimeout #(when (= id (:id @last-change))
                           (swap! last-change assoc :keys #{})
                           (render!))

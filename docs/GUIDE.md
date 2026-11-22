@@ -1,6 +1,6 @@
 # Building browser UIs with Scittle + Replicant + Web Awesome
 
-A working guide for AI assistants. Everything marked **verified** was exercised in headless Chrome (Playwright) against a 78-component kitchen-sink page; 60/60 interaction checks passed (63/63 in the repo's current suite, which adds State-panel checks), and the published page was also opened on an iPad. Items marked **unverified** are stated as such.
+A working guide for AI assistants. Everything marked **verified** was exercised in headless Chrome (Playwright) against a 78-component kitchen-sink page; 60/60 interaction checks passed (66/66 in the repo's current suite, which adds State-panel and layout checks), and the published page was also opened on an iPad. Items marked **unverified** are stated as such.
 
 Versions tested: Scittle 0.8.33 (with its Replicant plugin), Web Awesome 3.15.0 (MIT, free tier), Font Awesome Free solid SVGs for icons.
 
@@ -83,7 +83,7 @@ Save as `index.html`, serve it with any static server, done. Every dependency is
 </html>
 ```
 
-Serve it over HTTP (`python3 -m http.server`, or babashka's `babashka.http-server`). `file://` will not work for ES-module loading.
+Serve it over HTTP with any static file server, e.g. this repo's `bb scripts/serve_static.clj <dir> <port>` (http-kit, built into babashka). `file://` will not work for ES-module loading.
 
 ### Pinned versions (bump deliberately, together)
 
