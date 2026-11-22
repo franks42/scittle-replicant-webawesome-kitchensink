@@ -283,4 +283,5 @@ The `app/` version of the kitchen sink shows the minimum server-side setup; all 
   - `add-watch` uses a fixed key, so re-adding it replaces the old watcher;
   - the file ends with `(render!)`, so new view code shows immediately.
 - **New state keys after a reload:** `defonce` won't re-run its initial map, so merge defaults explicitly, e.g. `(swap! state update :srv #(merge {...defaults} %))`.
+- **Static hosting of a separate `.cljs` file:** the same shell with `window.KS_MODE = "static"` set before the Scittle script loads the UI from `cljs/kitchen_sink.cljs` on any static host (verified locally and on GitHub Pages); the cljs checks the mode and skips the API and websocket.
 - **One source, two deliveries:** a bb script (`scripts/build_single.clj`) inlines the cljs and embeds assets (data: URLs; `srcdoc` for iframe pages), and a `window.KS_MODE = "single"` flag switches off server features. Edit `app/`, regenerate the single file.

@@ -1,6 +1,6 @@
 # Scittle × Replicant × Web Awesome — GUI kitchen sink
 
-**Live demo (single-file version):** https://franks42.github.io/scittle-replicant-webawesome-kitchensink/single-file/  
+**Live demos:** [single file](https://franks42.github.io/scittle-replicant-webawesome-kitchensink/single-file/) · [HTML + separate .cljs](https://franks42.github.io/scittle-replicant-webawesome-kitchensink/app/public/static.html)  
 **Guide:** [docs/GUIDE.md](docs/GUIDE.md) (also on the site: [GUIDE.html](https://franks42.github.io/scittle-replicant-webawesome-kitchensink/docs/GUIDE.html))
 
 A template for building browser UIs in ClojureScript **without React, a bundler, or a build step**:
@@ -11,15 +11,15 @@ A template for building browser UIs in ClojureScript **without React, a bundler,
 
 ![Kitchen sink, app version](docs/screenshot.png)
 
-The same UI ships two ways:
+The same UI ships three ways, all from one `kitchen_sink.cljs`:
 
-| | `single-file/index.html` | `app/` |
-|---|---|---|
-| What | One self-contained HTML file (~290 KB) | HTML shell + `kitchen_sink.cljs` served by babashka |
-| Needs | Any static server | `bb dev` (babashka) |
-| Server features | none | EDN API, websocket push, hot reload |
-| Use it to | Hand someone a working page; prototype | Start a real web app |
-| Hosted | GitHub Pages, from `main` (this repo) | your own server |
+| | `single-file/index.html` | `app/public/static.html` | `app/public/index.html` |
+|---|---|---|---|
+| What | One self-contained HTML file (~290 KB) | HTML shell loading `cljs/kitchen_sink.cljs` | Same shell + same `.cljs`, served by babashka |
+| Needs | Any static server | Any static server | `bb dev` (babashka) |
+| Server features | none | none | EDN API, websocket push, hot reload |
+| Use it to | Hand someone a working page | Keep the UI in a real `.cljs` file, host anywhere | Start a real web app |
+| Hosted | GitHub Pages (this repo) | GitHub Pages (this repo) | your own server |
 
 `app/` is the source of truth; `single-file/index.html` is **generated** from it (`bb build-single`). GitHub Pages serves this repo from `main`, so after changing `app/`, run `bb build-single` and commit the regenerated file to update the live demo.
 
@@ -32,6 +32,9 @@ bb dev                 # http://localhost:8090
 # Single-file version
 bb build-single        # regenerate single-file/index.html from app/
 bb serve-single        # http://localhost:8091   (or: cd single-file && python3 -m http.server)
+
+# HTML + separate .cljs, no server features
+cd app/public && python3 -m http.server 8092    # http://localhost:8092/static.html
 ```
 
 Requires [babashka](https://babashka.org). The browser loads Web Awesome, Scittle and Font Awesome icons from pinned jsdelivr URLs; no npm install. A page must be served over HTTP (`file://` won't load the ES modules).
@@ -52,7 +55,8 @@ That's the skeleton of a real app: add routes to `handler` in `server.clj`, add 
 ```
 app/
   server.clj                  bb server: static files, EDN API, websocket, file watcher
-  public/index.html           HTML shell (pinned CDN links, styles)
+  public/index.html           HTML shell (pinned CDN links, styles) - app mode
+  public/static.html          same shell with KS_MODE "static" - no server features
   public/cljs/kitchen_sink.cljs   the whole UI: state atom, views, server integration
   public/img/, include.html, page-demo.html   demo assets
 scripts/
@@ -62,7 +66,7 @@ single-file/index.html        GENERATED - don't edit by hand
 docs/GUIDE.md                 how to work with this stack (written for AI assistants; useful for humans)
 test/
   kitchen_sink_test.py        60 interaction checks (Playwright), for either version
-  server_test.py              14 checks: API, websocket, client count, hot reload, single-file mode
+  server_test.py              17 checks: API, websocket, client count, hot reload, single-file and static modes
 bb.edn                        tasks: dev, build-single, serve-single
 ```
 
@@ -73,7 +77,9 @@ pip install playwright && playwright install chromium
 bb dev & bb serve-single &
 python3 test/kitchen_sink_test.py http://localhost:8090/index.html   # 60/60
 python3 test/kitchen_sink_test.py http://localhost:8091/index.html   # 60/60
-python3 test/server_test.py                                          # 14/14
+cd app/public && python3 -m http.server 8092 &
+python3 test/kitchen_sink_test.py http://localhost:8092/static.html  # 60/60
+python3 test/server_test.py                                          # 17/17
 ```
 
 Optional env: `KS_CHROME=/path/to/chrome`, `KS_PROXY=http://host:port`.

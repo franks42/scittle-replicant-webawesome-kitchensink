@@ -1,7 +1,10 @@
 ;; Web Awesome kitchen sink: all 78 free components, rendered with Replicant,
-;; evaluated in the browser by Scittle. Runs in two modes:
-;;   app    - loaded by app/public/index.html from the bb server (app/server.clj):
-;;            form posts to /api/profile, server pushes over /ws, hot reload.
+;; evaluated in the browser by Scittle. Runs in three modes (window.KS_MODE):
+;;   app    - (default) loaded by app/public/index.html from the bb server
+;;            (app/server.clj): form posts to /api/profile, server pushes over /ws,
+;;            hot reload.
+;;   static - loaded by app/public/static.html from any static host (e.g. GitHub
+;;            Pages): same file, same assets, server features switched off.
 ;;   single - inlined into single-file/index.html by scripts/build_single.clj;
 ;;            no server, assets embedded as data: URLs.
 (ns kitchen-sink
@@ -13,7 +16,9 @@
 ;; and keeps its state (everything below uses defonce for state).
 (def ui-version "1")
 
-(def single? (= "single" (.-KS_MODE js/window)))
+(def mode (or (.-KS_MODE js/window) "app"))   ; "app" | "static" | "single"
+(def single? (= mode "single"))
+(def server? (= mode "app"))
 
 ;; Asset indirection: relative paths in app mode, data: URLs / inline HTML in single mode.
 (def asset-paths
@@ -126,15 +131,19 @@
                 :reload (reload-cljs! (:file msg))
                 (log! "ws" "unknown message" (pr-str msg))))))))
 
-(when (and (not single?) (nil? @ws)) (connect!))
+(when (and server? (nil? @ws)) (connect!))
 
 (defn server-tile [s]
   (let [{:keys [ws time clients saved profiles reloads]} (:srv s)]
-    (if single?
+    (if-not server?
       [:section.tile.wide {:data-tags "server"}
-       [:h3 "Server"]
+       [:h3 (str "Server · " mode " mode")]
        [:wa-callout {:variant "neutral"} [:wa-icon {:slot "icon" :name "circle-info"}]
-        "Single-file mode: no server. Run the app version (" [:code "bb dev"] ") for the API, server push and hot reload."]]
+        (if single?
+          "Single-file mode: no server; this ClojureScript is inlined in the HTML with all assets embedded."
+          [:span "Static mode: this page loaded its UI from " [:code "cljs/kitchen_sink.cljs"]
+           " on a plain static host; no server."])
+        " Run the app version (" [:code "bb dev"] ") for the API, server push and hot reload."]]
       [:section.tile.wide {:data-tags "server" :id "server-tile"}
        [:h3 (str "Server (bb + http-kit) · ui-version " ui-version)]
        [:div.row
@@ -216,7 +225,7 @@
                                  entries (mapv vec (js->clj (js/Array.from (.entries fd))))]
                              (swap! state assoc :form entries)
                              (log! "form" "submit" (count entries))
-                             (when-not single? (post-profile! entries))))}}
+                             (when server? (post-profile! entries))))}}
      [:div.stack
       [:wa-input {:id "f-name" :name "name" :label "Name" :value (:name s) :with-clear true
                   :on {:input (on! :name tv) :wa-clear #(log! "wa-input" "wa-clear")}}
@@ -428,7 +437,7 @@
     [:p.muted "Scroll sideways; shadows mark overflow."]]
 
    [tile {:tags ["wa-page" "wa-zoomable-frame"] :wide? true}
-    [:wa-zoomable-frame (merge (if single? {:srcdoc (asset "page-demo")} {:src (asset "page-demo")})
+    [:wa-zoomable-frame (merge (if single? {:srcdoc (asset "page-demo")} {:src (asset "page-demo")})  ; single: inline HTML
                                {:zoom "0.6" :style {:height "380px"}
                                 :on {:load #(log! "wa-zoomable-frame" "load")}})]
     [:p.muted "A full " [:code "<wa-page>"] " layout lives in its own document (page-demo.html; inlined via srcdoc in single-file mode), shown here inside " [:code "<wa-zoomable-frame>"] "."]]])

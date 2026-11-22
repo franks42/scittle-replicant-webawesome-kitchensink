@@ -1,7 +1,8 @@
 """Server-mode checks for the app version (bb dev) plus a single-file sanity check.
 
-Usage (servers running: `bb dev` on 8090, `bb serve-single` on 8091):
-    python3 test/server_test.py [app_url] [single_url]
+Usage (servers running: `bb dev` on 8090, `bb serve-single` on 8091, and any static
+server on app/public for static.html, e.g. `cd app/public && python3 -m http.server 8092`):
+    python3 test/server_test.py [app_url] [single_url] [static_url]
 Optional env: KS_PROXY=http://host:port  (route CDN traffic through a proxy)
 Requires: pip install playwright && playwright install chromium (or set KS_CHROME to a Chrome binary)
 """
@@ -10,6 +11,7 @@ from playwright.async_api import async_playwright
 
 APP = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8090/"
 SINGLE = sys.argv[2] if len(sys.argv) > 2 else "http://localhost:8091/"
+STATIC = sys.argv[3] if len(sys.argv) > 3 else "http://localhost:8092/static.html"
 CLJS = pathlib.Path(__file__).resolve().parent.parent / "app/public/cljs/kitchen_sink.cljs"
 results = []
 
@@ -82,6 +84,16 @@ async def main():
         tile = await sp.evaluate("document.querySelector('[data-tags=server]').textContent")
         check("single-file: no websocket attempted", not ws_tried, str(ws_tried))
         check("single-file: server tile explains mode", "Single-file mode" in tile)
+
+        # static.html: same cljs file fetched separately from a plain static server
+        st = await ctx.new_page(); st_ws = []; cljs_reqs = []
+        st.on("websocket", lambda w: st_ws.append(w.url))
+        st.on("request", lambda r: r.url.endswith("cljs/kitchen_sink.cljs") and cljs_reqs.append(r.url))
+        await st.goto(STATIC); await st.wait_for_function("window.__ready===true", timeout=60000); await st.wait_for_timeout(1500)
+        tile = await st.evaluate("document.querySelector('[data-tags=server]').textContent")
+        check("static: cljs loaded as a separate file", len(cljs_reqs) == 1, str(cljs_reqs))
+        check("static: no websocket attempted", not st_ws, str(st_ws))
+        check("static: server tile explains mode", "Static mode" in tile)
         await b.close()
 
     for name, ok, d in results:
