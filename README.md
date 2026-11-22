@@ -186,24 +186,43 @@ Full details and an event cheat sheet are in [docs/GUIDE.md](docs/GUIDE.md). The
 - Replicant attaches `:on` handlers natively, so `wa-*` custom events just work; no React adapter needed.
 - Nine components are marked experimental in Web Awesome 3.15.0 (carousel, code highlighter, counter, lightbox, markdown, number ticker, tag input, and the carousel and lightbox items).
 
-## Credits
+## Credits and licenses
 
-This template is just glue; the heavy lifting is done by these projects:
+This template is glue; the heavy lifting is done by the projects below. Licenses were checked against the **exact versions this repo pins**, using the LICENSE files and package metadata those versions ship with (November 2026). The browser bundles were also inspected (source maps and embedded license blocks) to see what third-party code they contain.
 
-| Project | What it does here | Author | License |
+### What the browser loads (from jsDelivr, unmodified)
+
+| Project | Version | Role here | License | Copyright |
+|---|---|---|---|---|
+| [Scittle](https://github.com/babashka/scittle) | 0.8.33 | Runs ClojureScript in the browser (`scittle.js`) | EPL-1.0 | Michiel Borkent |
+| [Replicant](https://github.com/cjohansen/replicant) | 2026.06.2 (bundled in `scittle.replicant.js`) | Renders hiccup, attaches `:on` handlers | MIT | Christian Johansen |
+| [Web Awesome](https://webawesome.com) (free) | 3.15.0, `dist-cdn` | The 78 components | MIT | Fonticons, Inc. (Web Awesome is the successor of Shoelace, created by Cory LaViska) |
+| [Font Awesome Free](https://fontawesome.com) | 7.3.1, SVG icons | Icons for `wa-icon` | CC BY 4.0 (icons) | Fonticons, Inc. |
+
+**Bundled inside those files** (verified from source maps and embedded license blocks):
+
+- `scittle.js`: [SCI](https://github.com/babashka/sci) (EPL-1.0), [edamame](https://github.com/borkdude/edamame) (EPL-1.0), [ClojureScript](https://github.com/clojure/clojurescript) core (EPL-1.0), [Google Closure Library](https://github.com/google/closure-library) (Apache-2.0), [shadow-cljs](https://github.com/thheller/shadow-cljs) runtime (EPL-1.0), and small shared parts from Scittle's optional plugins: [reagent](https://github.com/reagent-project/reagent) (MIT), [re-frame](https://github.com/day8/re-frame) (MIT), [cljs-ajax](https://github.com/JulianBirch/cljs-ajax) (EPL), [transit-cljs](https://github.com/cognitect/transit-cljs) (Apache-2.0).
+- Web Awesome `dist-cdn`: [Lit](https://lit.dev) (BSD-3-Clause), [Floating UI](https://floating-ui.com) (MIT), [marked](https://github.com/markedjs/marked) (MIT), [nanoid](https://github.com/ai/nanoid) (MIT), [@ctrl/tinycolor](https://github.com/scttcper/tinycolor) (MIT), @konnorr/qr-creator (MIT), microlighter (MIT), @shoelace-style/localize (MIT), composed-offset-position (MIT), and @shoelace-style/animations (MIT).
+  - The `wa-animation` presets in @shoelace-style/animations are generated from **animate.css 4.1.1 as published on npm, which is MIT**. Note that the animate.css repository has since moved to the Hippocratic License 2.1; that applies to later versions, not the npm 4.x release used here.
+  - Web Awesome's built-in icons (chevrons, close, check, stars) are Font Awesome Free 7.0.0 SVGs embedded in its CSS (CC BY 4.0, with attribution comments).
+  - `dist-cdn` also contains React wrappers (React, MIT) and test utilities (axe-core, MPL-2.0; chai, MIT). **This template never loads them**: a full run of the kitchen sink fetched 371 Web Awesome files and none of those.
+
+### What runs on your machine (not in the browser)
+
+| Project | Role here | License | Copyright |
 |---|---|---|---|
-| [Scittle](https://github.com/babashka/scittle) | Runs the ClojureScript in the browser, no build step | Michiel Borkent (borkdude) | EPL-1.0 |
-| [SCI](https://github.com/babashka/sci) | The Small Clojure Interpreter underneath Scittle (and babashka) | Michiel Borkent | EPL-1.0 |
-| [Replicant](https://github.com/cjohansen/replicant) | Renders hiccup to the DOM; attaches the `:on` handlers | Christian Johansen | MIT |
-| [Web Awesome](https://webawesome.com) | The 78 components (formerly Shoelace) | Cory LaViska and the Web Awesome / Font Awesome team | MIT |
-| [Lit](https://lit.dev) | Inside every Web Awesome component (never touched directly) | The Lit project / Google | BSD-3-Clause |
-| [babashka](https://babashka.org) | Runs the app server, the build script and the `bb` tasks | Michiel Borkent | EPL-1.0 |
-| [http-kit](https://github.com/http-kit/http-kit) | HTTP + websocket server (bundled in babashka) | http-kit contributors | Apache-2.0 |
-| [Font Awesome Free](https://fontawesome.com) | Icons, via jsdelivr | Fonticons, Inc. | CC BY 4.0 (icons), MIT (code) |
-| [jsDelivr](https://www.jsdelivr.com) | Serves all the browser libraries | | |
+| [babashka](https://babashka.org) | App server, `bb` tasks, single-file build | EPL-1.0 | Michiel Borkent |
+| [http-kit](https://github.com/http-kit/http-kit) (bundled in babashka) | HTTP + websocket server | Apache-2.0 | http-kit contributors |
+| [Playwright](https://playwright.dev) (tests only) | Browser automation for `test/` | Apache-2.0 | Microsoft |
 
-Images in `app/public/img/` were generated for this demo.
+[jsDelivr](https://www.jsdelivr.com) serves the browser files; it is a free CDN service with its own terms of use, not a code license.
+
+### Attribution
+
+None of these libraries is vendored into this repo; the pages load the original, unmodified files from jsDelivr, and those files carry their own notices: every Web Awesome file has a Fonticons copyright header plus "Bundled license information" blocks for the code it includes, Font Awesome's SVGs carry attribution comments, and `scittle.js` keeps the Closure Library notice. If you self-host these files, keep them unmodified (or keep their license comments) and ship the corresponding LICENSE files. Font Awesome's CC BY 4.0 requires attribution for the icons; the credit above plus the comments in the files are how this repo provides it.
+
+This is a good-faith summary, not legal advice; check the linked licenses for your own use.
 
 ## License
 
-This project: [EPL-2.0](LICENSE). None of the libraries above are vendored into the repo: the browser loads them from pinned jsDelivr URLs, and babashka provides the server side. Their licenses are listed in Credits.
+This project's own files (the HTML shells, `kitchen_sink.cljs`, `server.clj`, scripts, tests, docs, and the images in `app/public/img/`, which were generated for this demo) are licensed under [EPL-2.0](LICENSE).
