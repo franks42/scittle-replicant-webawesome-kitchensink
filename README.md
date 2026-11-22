@@ -1,6 +1,7 @@
 # Scittle × Replicant × Web Awesome — GUI kitchen sink
 
-**Live demo (single-file version):** https://franks42.github.io/scittle-replicant-webawesome-kitchensink/
+**Live demo (single-file version):** https://franks42.github.io/scittle-replicant-webawesome-kitchensink/single-file/  
+**Guide:** [docs/GUIDE.md](docs/GUIDE.md) (also on the site: [GUIDE.html](https://franks42.github.io/scittle-replicant-webawesome-kitchensink/docs/GUIDE.html))
 
 A template for building browser UIs in ClojureScript **without React, a bundler, or a build step**:
 
@@ -18,8 +19,9 @@ The same UI ships two ways:
 | Needs | Any static server | `bb dev` (babashka) |
 | Server features | none | EDN API, websocket push, hot reload |
 | Use it to | Hand someone a working page; prototype | Start a real web app |
+| Hosted | GitHub Pages, from `main` (this repo) | your own server |
 
-`app/` is the source of truth; `single-file/index.html` is **generated** from it (`bb build-single`).
+`app/` is the source of truth; `single-file/index.html` is **generated** from it (`bb build-single`). GitHub Pages serves this repo from `main`, so after changing `app/`, run `bb build-single` and commit the regenerated file to update the live demo.
 
 ## Quick start
 
@@ -62,7 +64,6 @@ test/
   kitchen_sink_test.py        60 interaction checks (Playwright), for either version
   server_test.py              14 checks: API, websocket, client count, hot reload, single-file mode
 bb.edn                        tasks: dev, build-single, serve-single
-.github/workflows/pages.yml   deploys single-file/ to GitHub Pages on push
 ```
 
 ## Tests
