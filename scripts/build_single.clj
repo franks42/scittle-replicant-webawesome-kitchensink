@@ -1,4 +1,5 @@
-;; Generates single-file/index.html from app/: inlines kitchen_sink.cljs and embeds
+;; Generates single-file/index.html from app/: inlines logic.cljc, views.cljc and
+;; kitchen_sink.cljs, and embeds
 ;; every local asset (images as data: URLs, include.html as a data: URL, page-demo.html
 ;; as srcdoc HTML), so the result needs nothing but the pinned jsdelivr URLs.
 ;;
@@ -44,12 +45,15 @@
 (let [shell (slurp (str (fs/path public "index.html")))
       tag   "<script type=\"application/x-scittle\" src=\"cljs/kitchen_sink.cljs\"></script>"
       vtag  "<script type=\"application/x-scittle\" src=\"cljs/views.cljc\"></script>"
+      ltag  "<script type=\"application/x-scittle\" src=\"cljs/logic.cljc\"></script>"
+      _     (assert (str/includes? shell ltag) "app shell must load cljs/logic.cljc")
       _     (assert (str/includes? shell tag) "app shell must load cljs/kitchen_sink.cljs")
       _     (assert (str/includes? shell vtag) "app shell must load cljs/views.cljc")
       inline (str "<script>window.KS_MODE = \"single\";\n"
                   "window.KS_ASSETS = " (script-safe (json/generate-string assets)) ";</script>\n"
                   (inline-scittle "kitchen_sink.cljs"))
       html  (-> shell
+                (str/replace ltag (inline-scittle "logic.cljc"))
                 (str/replace vtag (inline-scittle "views.cljc"))
                 (str/replace tag inline)
                 (str/replace "<!-- The whole UI lives in this file; the bb server pushes a reload when it changes. -->"

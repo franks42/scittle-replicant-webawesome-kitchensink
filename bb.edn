@@ -7,5 +7,7 @@
                 :task (shell "bb scripts/serve_static.clj app/public 8092")}
   build-single {:doc  "Generate single-file/index.html from app/ (inlined cljs + embedded assets)"
                 :task (load-file "scripts/build_single.clj")}
+  test         {:doc  "Browser-free unit tests of logic.cljc (reducer, routing, theming) and views.cljc (no Java, no deps)"
+                :task (load-file "test/unit_test.clj")}
   serve-single {:doc  "Single-file mode: serve single-file/ (PORT, default 8091)"
                 :task (shell "bb scripts/serve_static.clj single-file 8091")}}}

@@ -92,6 +92,7 @@
 <!-- Static variant: same UI file as index.html, loaded from any static host (no bb server needed).
      KS_MODE "static" switches off the API, websocket and hot reload. -->
 <script>window.KS_MODE = "static";</script>
+<script type="application/x-scittle" src="cljs/logic.cljc"></script>  <!-- pure reducer, routing, theming (unit-tested by `bb test`) -->
 <script type="application/x-scittle" src="cljs/views.cljc"></script>  <!-- shared views + aliases (also used by the server) -->
 <script type="application/x-scittle" src="cljs/kitchen_sink.cljs"></script>
 </body>

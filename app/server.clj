@@ -67,6 +67,8 @@
     (do
       ;; the very file the browser loads; re-read per request so edits show up
       (load-file (str (fs/path public-dir "cljs" "views.cljc")))
+      (doseq [[k f] @(resolve 'kitchen-sink.views/aliases)]
+        ((requiring-resolve 'replicant.alias/register!) k f))
       (let [render  (requiring-resolve 'replicant.string/render)
             table   (resolve 'kitchen-sink.views/profiles-table)
             card    (resolve 'kitchen-sink.views/profile-card)

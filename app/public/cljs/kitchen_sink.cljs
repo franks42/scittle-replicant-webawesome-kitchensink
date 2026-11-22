@@ -7,11 +7,14 @@
 ;;            Pages): same file, same assets, server features switched off.
 ;;   single - inlined into single-file/index.html by scripts/build_single.clj;
 ;;            no server, assets embedded as data: URLs.
-;; Shared, interop-free views and aliases live in views.cljc (loaded first).
+;; Pure logic (reducer, routing, theming) lives in logic.cljc and shared,
+;; interop-free views and aliases in views.cljc; both are loaded first.
 (ns kitchen-sink
   (:require [replicant.dom :as d]
             [replicant.string :as rs]
-            [kitchen-sink.views :as v]          ; app/public/cljs/views.cljc, shared with the server
+            [replicant.alias :as alias]
+            [kitchen-sink.logic :as logic]      ; app/public/cljs/logic.cljc: pure, unit-tested with `bb test`
+            [kitchen-sink.views :as v]          ; app/public/cljs/views.cljc: shared with the server
             [clojure.edn :as edn]
             [clojure.walk :as walk]
             [clojure.string :as str]))
@@ -52,9 +55,8 @@
 (swap! state #(merge {:fn-count 0 :data-count 0 :last-action nil
                       :lc-show? false :items [1 2 3] :item-seq 3} %))
 
-(def log-size 200)   ; the Event log panel scrolls, so keep a useful history
-
-(defn log-line [tag ev detail] (str tag " · " ev (when (some? detail) (str " → " detail))))
+(def log-size logic/log-size)
+(def log-line logic/log-line)
 
 (defn log! [tag ev & [detail]]
   (swap! state update :log #(take log-size (cons (log-line tag ev detail) %))))
@@ -121,23 +123,11 @@
        x))
    actions))
 
-(defn apply-action
-  "Pure: one action applied to the state map. Unit-testable without a browser."
-  [s [op & args :as action]]
-  (case op
-    :store/assoc    (let [[k v] args] (assoc s k v))
-    :store/assoc-in (let [[path v] args] (assoc-in s path v))
-    :store/inc      (update s (first args) (fnil inc 0))
-    ;; domain actions are just more cases:
-    :demo/add-item    (let [n (inc (:item-seq s 0))] (-> s (assoc :item-seq n) (update :items (fnil conj []) n)))
-    :demo/remove-item (update s :items #(vec (remove #{(first args)} %)))
-    :log            (let [[tag ev detail] args]
-                      (update s :log #(take log-size (cons (log-line tag ev detail) %))))
-    (update s :log #(cons (log-line "dispatch" "unknown action" (pr-str action)) %))))
+(def apply-action logic/apply-action)   ; pure reducer, see logic.cljc
 
 (defn dispatch! [event-data actions]
   (let [actions (interpolate event-data actions)
-        apply! (fn [] (swap! state (fn [s] (reduce apply-action (assoc s :last-action actions) actions))))]
+        apply! (fn [] (swap! state logic/apply-actions actions))]
     (case (:replicant/trigger event-data)
       ;; one swap! = one state transition, however many actions
       :replicant.trigger/dom-event  (apply!)
@@ -147,6 +137,9 @@
       nil)))
 
 (d/set-dispatch! dispatch!)
+
+;; Aliases are defined in views.cljc (dependency-free); register them here.
+(doseq [[k f] v/aliases] (alias/register! k f))
 
 ;; ---------------------------------------------------------------------------
 ;; Server integration (app mode). This is the part to grow into a real app:
@@ -778,8 +771,8 @@
 
    [tile {:tags ["aliases"]}
     [:div.stack
-     [:div.muted "Your own hiccup tags: " [:code "(replicant.alias/register! :ks/stat stat)"]
-      " in views.cljc. An alias function gets " [:code "[attrs children]"] " and returns hiccup."]
+     [:div.muted "Your own hiccup tags, defined in views.cljc and registered with "
+      [:code "(replicant.alias/register! :ks/stat stat)"] ". An alias function gets " [:code "[attrs children]"] " and returns hiccup."]
      [:div.ks-stats {:id "alias-demo"}
       [:ks/stat {:label "Volume"} (:volume s)]
       [:ks/stat {:label "Page"} (:page s)]

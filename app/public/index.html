@@ -90,6 +90,7 @@
 <div id="app"></div>
 
 <!-- The whole UI lives in this file; the bb server pushes a reload when it changes. -->
+<script type="application/x-scittle" src="cljs/logic.cljc"></script>  <!-- pure reducer, routing, theming (unit-tested by `bb test`) -->
 <script type="application/x-scittle" src="cljs/views.cljc"></script>  <!-- shared views + aliases (also used by the server) -->
 <script type="application/x-scittle" src="cljs/kitchen_sink.cljs"></script>
 </body>

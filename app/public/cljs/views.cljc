@@ -1,17 +1,18 @@
-;; Shared views: plain functions from data to hiccup, with no browser interop.
-;; Loaded twice, unchanged:
-;;   - in the browser by Scittle (a <script src> before kitchen_sink.cljs), and
-;;   - on the server by app/server.clj under `bb dev-ssr`, which renders them to
-;;     HTML strings with replicant.string (GET /ssr/profiles).
+;; Shared views: plain functions from data to hiccup. No browser interop and no
+;; dependencies, so the same file is loaded unchanged by:
+;;   - the browser (Scittle, a <script src> before kitchen_sink.cljs),
+;;   - the server under `bb dev-full`, which renders them to HTML strings with
+;;     replicant.string (GET /ssr/profiles), and
+;;   - the browser-free unit tests (`bb test`).
 ;; This is Replicant's "one view, two renderers" story: data in, DOM or HTML out.
-(ns kitchen-sink.views
-  (:require [replicant.alias :as alias]))
+(ns kitchen-sink.views)
 
 ;; ---------------------------------------------------------------------------
 ;; Aliases: your own hiccup tags. An alias function receives the attribute map
 ;; and the children, and returns ordinary hiccup. Alias keywords must be
-;; namespaced. Registered globally here, so [:ks/stat ...] works in any
-;; replicant.dom/render or replicant.string/render call after this file loads.
+;; namespaced. This file only defines them (see `aliases` below); whoever renders
+;; registers them with replicant.alias/register!, which keeps this file free of
+;; dependencies.
 (defn stat
   "[:ks/stat {:label \"Volume\"} 40] -> a small label/value card."
   [{:keys [label] :as attrs} children]
@@ -26,8 +27,10 @@
          [:wa-avatar {:initials initials :label (str initials) :style {:--size "1.6rem"}}]]
         children))
 
-(alias/register! :ks/stat stat)
-(alias/register! :ks/chip chip)
+(def aliases
+  "Register with (doseq [[k f] aliases] (replicant.alias/register! k f))."
+  {:ks/stat stat
+   :ks/chip chip})
 
 ;; ---------------------------------------------------------------------------
 ;; Views used by both the browser and the server.

@@ -257,7 +257,8 @@ async def main():
         # the switch uses a data handler, so its transition also records :last-action
         await step("state panel: highlights exactly the changed keys", flip,
                    lambda: _r(ev("[...document.querySelectorAll('#state .kv.changed')].map(e=>e.dataset.key)"),
-                              lambda ks: (sorted(ks) == [":last-action", ":notify?"], ks)))
+                              lambda ks: (sorted(k for k in ks if k != ":srv") == [":last-action", ":notify?"], ks)))
+        # (:srv is ignored: in app mode the server tick can land inside the 200 ms window)
         # (in app mode the server tick legitimately re-highlights :srv every 5 s)
         await step("state panel: highlight clears", lambda: W(2600),
                    lambda: _r(ev("[...document.querySelectorAll('#state .kv.changed')].map(e=>e.dataset.key)"),
