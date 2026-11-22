@@ -1,6 +1,6 @@
 # Building browser UIs with Scittle + Replicant + Web Awesome
 
-A working guide for AI assistants. Everything marked **verified** was exercised in headless Chrome (Playwright) against a 78-component kitchen-sink page; 60/60 interaction checks passed (72/72 in the repo's current suite, which adds State-panel, layout and events-as-data checks), and the published page was also opened on an iPad. Items marked **unverified** are stated as such.
+A working guide for AI assistants. Everything marked **verified** was exercised in headless Chrome (Playwright) against a 78-component kitchen-sink page; 60/60 interaction checks passed (81/81 in the repo's current suite, which adds State-panel, layout, events-as-data and Replicant-feature checks), and the published page was also opened on an iPad. Items marked **unverified** are stated as such.
 
 Versions tested: Scittle 0.8.33 (with its Replicant plugin), Web Awesome 3.15.0 (MIT, free tier), Font Awesome Free solid SVGs for icons.
 
@@ -148,15 +148,23 @@ Give the element an `:id` and call the method on the DOM node (verified):
 [:wa-button {:on {:click #(.next (el "stepper"))}} "Next"]
 [:wa-button {:on {:click #(.create (el "toast") "Saved" #js {:variant "success" :icon "circle-check" :duration 4000})}} "Save"]
 ```
-(Replicant also has lifecycle hooks such as `:replicant/on-mount`; not used/verified in this setup.)
+Better: capture the node with an `on-mount` hook instead of looking it up by id (see 4.7; verified).
 
 ### 4.6 Events as data (verified)
 A handler that is not a function is passed unchanged to the function registered with `replicant.dom/set-dispatch!`, called as `(fn [event-data handler-data])`; `event-data` contains `:replicant/trigger` (`:replicant.trigger/dom-event` for DOM events), `:replicant/dom-event` and `:replicant/node`. Placeholders such as `:event/target.value` are a convention you implement (e.g. with `clojure.walk/postwalk`), not a Replicant feature. The kitchen sink's *Events as data* section shows a complete version: placeholders, a pure `apply-action` reducer, and one `swap!` per event. Function and data handlers can be mixed in the same `:on` map.
 
-### 4.7 State loop
+### 4.7 Life-cycle hooks, refs, transitions, aliases, string rendering (verified in Scittle 0.8.33 / Replicant 2026.06.2)
+- Hooks `:replicant/on-mount`, `:replicant/on-render`, `:replicant/on-unmount` receive a map with `:replicant/node`, `:replicant/remember`, `:replicant/life-cycle`, `:replicant/trigger`, `:replicant/dispatch` (and `:replicant/memory` once something was remembered). `on-render` fires on every render pass of the tree, even when its element did not change.
+- Data hooks reach the dispatch function with two arguments; `:replicant/trigger` is `:replicant.trigger/life-cycle`, `:replicant/life-cycle` e.g. `:replicant.life-cycle/mount`. They fire during rendering, so apply resulting state changes afterwards (the kitchen sink uses `setTimeout 0`).
+- Refs: store the node from `on-mount` in a separate atom; use it for component methods instead of `getElementById`.
+- `:replicant/mounting` / `:replicant/unmounting`: attribute maps merged in on enter/leave; with a CSS transition the element animates in, and on removal stays in the DOM until the transition ends.
+- Aliases: `replicant.alias/register!` (global) or `{:aliases ...}` render option; namespaced keywords; `(fn [attrs children] hiccup)`.
+- `replicant.string/render` works in the browser and in babashka (with Replicant in `:deps`); handlers/hooks are dropped, aliases expand.
+
+### 4.8 State loop
 One atom, `add-watch` → `d/render`. Rendering is synchronous on each `swap!`. This was fast enough for a page with all 78 components, including high-frequency events like `wa-reposition` from the split panel.
 
-### 4.8 Multiple Scittle script tags
+### 4.9 Multiple Scittle script tags
 Each `<script type="application/x-scittle">` can define a namespace; later tags can `:require` earlier ones (verified).
 
 ---

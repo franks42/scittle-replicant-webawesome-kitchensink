@@ -1,0 +1,49 @@
+;; Shared views: plain functions from data to hiccup, with no browser interop.
+;; Loaded twice, unchanged:
+;;   - in the browser by Scittle (a <script src> before kitchen_sink.cljs), and
+;;   - on the server by app/server.clj under `bb dev-ssr`, which renders them to
+;;     HTML strings with replicant.string (GET /ssr/profiles).
+;; This is Replicant's "one view, two renderers" story: data in, DOM or HTML out.
+(ns kitchen-sink.views
+  (:require [replicant.alias :as alias]))
+
+;; ---------------------------------------------------------------------------
+;; Aliases: your own hiccup tags. An alias function receives the attribute map
+;; and the children, and returns ordinary hiccup. Alias keywords must be
+;; namespaced. Registered globally here, so [:ks/stat ...] works in any
+;; replicant.dom/render or replicant.string/render call after this file loads.
+(defn stat
+  "[:ks/stat {:label \"Volume\"} 40] -> a small label/value card."
+  [{:keys [label] :as attrs} children]
+  [:div (merge {:class "ks-stat"} (dissoc attrs :label))
+   [:div {:class "ks-stat-label"} label]
+   (into [:div {:class "ks-stat-value"}] children)])
+
+(defn chip
+  "[:ks/chip {:initials \"AL\"} \"Ada Lovelace\"] -> avatar + name."
+  [{:keys [initials] :as attrs} children]
+  (into [:span (merge {:class "ks-chip"} (dissoc attrs :initials))
+         [:wa-avatar {:initials initials :label (str initials) :style {:--size "1.6rem"}}]]
+        children))
+
+(alias/register! :ks/stat stat)
+(alias/register! :ks/chip chip)
+
+;; ---------------------------------------------------------------------------
+;; Views used by both the browser and the server.
+(defn initials [name]
+  (->> (re-seq #"\S+" (str name)) (map first) (take 2) (apply str)))
+
+(defn profile-card [{:keys [name email qty]}]
+  [:div {:class "ks-profile"}
+   [:ks/chip {:initials (initials name)} (if (seq name) name "(no name)")]
+   [:div {:class "ks-stats"}
+    [:ks/stat {:label "Email"} (if (seq email) email "—")]
+    [:ks/stat {:label "Quantity"} (str qty)]]])
+
+(defn profiles-table [profiles]
+  [:table {:id "profiles-table"}
+   [:tr [:th "id"] [:th "name"] [:th "email"] [:th "qty"] [:th "saved-at"]]
+   (for [p profiles]
+     [:tr {:replicant/key (:id p)}
+      [:td (:id p)] [:td (:name p)] [:td (:email p)] [:td (:qty p)] [:td (:saved-at p)]])])

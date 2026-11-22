@@ -44,6 +44,18 @@
     .state .kv { padding: 1px 4px; border-radius: 4px; transition: background-color .6s ease-out; }
     .state .kv.changed { background: #fff3a3; transition: none; }
     .state .k { color: var(--wa-color-brand-on-quiet); font-weight: 600; }
+    /* Replicant features tiles */
+    .ks-stats { display: flex; gap: .6rem; flex-wrap: wrap; }
+    .ks-stat { border: 1px solid var(--wa-color-surface-border); border-radius: 8px; padding: .4rem .7rem; min-width: 5.5rem; }
+    .ks-stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--wa-color-text-quiet); }
+    .ks-stat-value { font-size: 1.15rem; font-weight: 600; }
+    .ks-chip { display: inline-flex; align-items: center; gap: .45rem; padding: .2rem .7rem .2rem .25rem; border-radius: 999px; background: var(--wa-color-neutral-fill-quiet); }
+    .ks-profile { display: flex; flex-direction: column; gap: .6rem; }
+    .tr-list { display: flex; flex-direction: column; gap: .4rem; }
+    .tr-item { display: flex; align-items: center; justify-content: space-between; padding: .35rem .5rem .35rem .8rem; border-radius: 8px;
+               background: var(--wa-color-brand-fill-quiet); transition: opacity .4s ease, transform .4s ease; }
+    .tr-item.tr-out-left { opacity: 0; transform: translateX(-24px); }
+    .tr-item.tr-out-right { opacity: 0; transform: translateX(24px); }
     .events-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
     pre.code { font: 12px/1.45 var(--wa-font-family-code); background: var(--wa-color-surface-lowered); border-radius: 6px; padding: .5rem .65rem; margin: 0; white-space: pre-wrap; word-break: break-word; }
     ul.pros { margin: 0; padding-left: 1.2rem; font-size: 14px; }
@@ -78,6 +90,7 @@
 <div id="app"></div>
 
 <!-- The whole UI lives in this file; the bb server pushes a reload when it changes. -->
+<script type="application/x-scittle" src="cljs/views.cljc"></script>  <!-- shared views + aliases (also used by the server) -->
 <script type="application/x-scittle" src="cljs/kitchen_sink.cljs"></script>
 </body>
 </html>

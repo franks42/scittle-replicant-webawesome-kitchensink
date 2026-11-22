@@ -7,8 +7,11 @@
 ;;            Pages): same file, same assets, server features switched off.
 ;;   single - inlined into single-file/index.html by scripts/build_single.clj;
 ;;            no server, assets embedded as data: URLs.
+;; Shared, interop-free views and aliases live in views.cljc (loaded first).
 (ns kitchen-sink
   (:require [replicant.dom :as d]
+            [replicant.string :as rs]
+            [kitchen-sink.views :as v]          ; app/public/cljs/views.cljc, shared with the server
             [clojure.edn :as edn]
             [clojure.walk :as walk]
             [clojure.string :as str]))
@@ -46,7 +49,8 @@
          :menu nil :bold? true :form nil :log ()}))
 
 (swap! state update :srv #(merge {:ws "closed" :time nil :clients 0 :saved nil :profiles nil :reloads 0} %))
-(swap! state #(merge {:fn-count 0 :data-count 0 :last-action nil} %))
+(swap! state #(merge {:fn-count 0 :data-count 0 :last-action nil
+                      :lc-show? false :items [1 2 3] :item-seq 3} %))
 
 (def log-size 200)   ; the Event log panel scrolls, so keep a useful history
 
@@ -56,7 +60,16 @@
   (swap! state update :log #(take log-size (cons (log-line tag ev detail) %))))
 
 (defn tv [e] (.. e -target -value))
-(defn el [id] (js/document.getElementById id))
+;; DOM nodes captured by life-cycle hooks (Replicant's way to get at a node),
+;; keyed by name. A separate atom: changing it must not trigger a re-render.
+(defonce refs (atom {}))
+
+(defn ref
+  "Attributes that keep refs[k] pointing at this element while it is mounted:
+   (merge {:id ...} (ref :stepper)), then (.next (:stepper @refs))."
+  [k]
+  {:replicant/on-mount   (fn [{:replicant/keys [node]}] (swap! refs assoc k node))
+   :replicant/on-unmount (fn [_] (swap! refs dissoc k))})
 (defn on! [k f] (fn [e] (swap! state assoc k (f e))))
 
 (defn tile
@@ -93,17 +106,18 @@
 ;;   [:store/assoc k v]  [:store/assoc-in path v]  [:store/inc k]  [:log tag ev detail]
 ;;
 ;; Placeholders, replaced from the DOM event before the actions run:
-(defn interpolate [e actions]
+(defn interpolate [event-data actions]
   (walk/postwalk
    (fn [x]
      (case x
-       :event/target.value     (.. e -target -value)
-       :event/target.checked   (.. e -target -checked)
-       :event/target.page      (.. e -target -page)
-       :event/target.active    (.. e -target -active)
-       :event/detail.name      (.. e -detail -name)
-       :event/detail.index     (.. e -detail -index)
-       :event/detail.item.value (.. e -detail -item -value)
+       :life-cycle/phase (some-> (:replicant/life-cycle event-data) name)   ; "mount", "unmount", ...
+       :event/target.value     (.. (:replicant/dom-event event-data) -target -value)
+       :event/target.checked   (.. (:replicant/dom-event event-data) -target -checked)
+       :event/target.page      (.. (:replicant/dom-event event-data) -target -page)
+       :event/target.active    (.. (:replicant/dom-event event-data) -target -active)
+       :event/detail.name      (.. (:replicant/dom-event event-data) -detail -name)
+       :event/detail.index     (.. (:replicant/dom-event event-data) -detail -index)
+       :event/detail.item.value (.. (:replicant/dom-event event-data) -detail -item -value)
        x))
    actions))
 
@@ -114,15 +128,23 @@
     :store/assoc    (let [[k v] args] (assoc s k v))
     :store/assoc-in (let [[path v] args] (assoc-in s path v))
     :store/inc      (update s (first args) (fnil inc 0))
+    ;; domain actions are just more cases:
+    :demo/add-item    (let [n (inc (:item-seq s 0))] (-> s (assoc :item-seq n) (update :items (fnil conj []) n)))
+    :demo/remove-item (update s :items #(vec (remove #{(first args)} %)))
     :log            (let [[tag ev detail] args]
                       (update s :log #(take log-size (cons (log-line tag ev detail) %))))
     (update s :log #(cons (log-line "dispatch" "unknown action" (pr-str action)) %))))
 
 (defn dispatch! [event-data actions]
-  (when (= :replicant.trigger/dom-event (:replicant/trigger event-data))
-    (let [actions (interpolate (:replicant/dom-event event-data) actions)]
+  (let [actions (interpolate event-data actions)
+        apply! (fn [] (swap! state (fn [s] (reduce apply-action (assoc s :last-action actions) actions))))]
+    (case (:replicant/trigger event-data)
       ;; one swap! = one state transition, however many actions
-      (swap! state (fn [s] (reduce apply-action (assoc s :last-action actions) actions))))))
+      :replicant.trigger/dom-event  (apply!)
+      ;; life-cycle hooks fire while Replicant is rendering: apply after it finishes.
+      ;; (Use data hooks on mount/unmount; a state change from on-render would loop.)
+      :replicant.trigger/life-cycle (js/setTimeout apply! 0)
+      nil)))
 
 (d/set-dispatch! dispatch!)
 
@@ -207,10 +229,11 @@
         (when saved [:span {:id "saved-profile"} (str "Last saved: #" (:id saved) " " (:name saved) " at " (:saved-at saved))])]
        (when profiles
          [:wa-scroller {:orientation "horizontal"}
-          [:table {:id "profiles-table"}
-           [:tr [:th "id"] [:th "name"] [:th "email"] [:th "qty"] [:th "saved-at"]]
-           (for [p profiles]
-             [:tr {:replicant/key (:id p)} [:td (:id p)] [:td (:name p)] [:td (:email p)] [:td (:qty p)] [:td (:saved-at p)]])]])])))
+          (v/profiles-table profiles)])        ; shared view (views.cljc), also rendered by the server
+       [:p.muted "Server-side rendering: run " [:code "bb dev-ssr"] " and open "
+        [:a {:id "ssr-link" :href "/ssr/profiles" :target "_blank"} "/ssr/profiles"]
+        " - the same " [:code "profiles-table"] " and " [:code "profile-card"] " functions rendered to HTML by "
+        [:code "replicant.string"] " in babashka."]])))
 
 ;; ---------------------------------------------------------------------------
 ;; Demo: the same counter with both kinds of handler, side by side.
@@ -463,11 +486,11 @@
       [:wa-tooltip {:for "tip-target" :on {:wa-show #(log! "wa-tooltip" "wa-show")}} "Tooltips use the " [:code "for"] " attribute"]
       (for [[v icon] [["success" "circle-check"] ["warning" "triangle-exclamation"] ["danger" "circle-xmark"]]]
         [:wa-button {:replicant/key v :id (str "toast-" v) :variant v
-                     :on {:click #(do (.create (el "toast") (str "A " v " toast from Replicant")
+                     :on {:click #(do (.create (:toast @refs) (str "A " v " toast from Replicant")
                                                #js {:variant v :icon icon :duration 4000})
                                       (log! "wa-toast" "create" v))}}
          (str "Toast " v)])]
-     [:wa-toast {:id "toast" :placement "bottom-end"}]
+     [:wa-toast (merge {:id "toast" :placement "bottom-end"} (ref :toast))]
      [:wa-toast-item {:variant "brand" :duration 0} [:wa-icon {:slot "icon" :name "bell"}] "A static toast item (duration 0)"]]]])
 
 (defn layout [s]
@@ -563,16 +586,16 @@
     [:p.muted (str "Page " (:page s))]]
 
    [tile {:tags ["wa-stepper" "wa-step"]}
-    [:wa-stepper {:id "stepper" :active (:step s) :clickable true
+    [:wa-stepper (merge (ref :stepper) {:id "stepper" :active (:step s) :clickable true
                   :on {:wa-step-change #(do (swap! state assoc :step (.. % -target -active))
-                                            (log! "wa-stepper" "wa-step-change" (.. % -target -active)))}}
+                                            (log! "wa-stepper" "wa-step-change" (.. % -target -active)))}})
      [:wa-step {:name "cart" :completed true} "Cart"]
      [:wa-step {:name "shipping"} "Shipping" [:span {:slot "description"} "Address"]]
      [:wa-step {:name "payment"} "Payment"]
      [:wa-step {:name "done"} "Done"]]
     [:div.row {:style {:margin-top ".75rem"}}
-     [:wa-button {:size "s" :id "step-prev" :on {:click #(.previous (el "stepper"))}} "Back"]
-     [:wa-button {:size "s" :variant "brand" :id "step-next" :on {:click #(.next (el "stepper"))}} "Next"]]]])
+     [:wa-button {:size "s" :id "step-prev" :on {:click #(.previous (:stepper @refs))}} "Back"]
+     [:wa-button {:size "s" :variant "brand" :id "step-next" :on {:click #(.next (:stepper @refs))}} "Next"]]]])
 
 (defn media [s]
   [[tile {:tags ["wa-avatar" "wa-icon"]}
@@ -641,10 +664,10 @@
     [:div.stack
      [:div "Launch in " [:wa-counter {:duration 190800000 :label "Time until launch"}]]
      [:div {:style {:font-size "2rem" :font-weight 700}}
-      [:wa-number-ticker {:id "ticker" :value (:ticker s) :on {:wa-finish #(log! "wa-number-ticker" "wa-finish")}}]]
+      [:wa-number-ticker (merge (ref :ticker) {:id "ticker" :value (:ticker s) :on {:wa-finish #(log! "wa-number-ticker" "wa-finish")}})]]
      [:div.row
       [:wa-button {:size "s" :id "ticker-add" :on {:click #(swap! state update :ticker + 250000)}} "+250,000"]
-      [:wa-button {:size "s" :on {:click #(.restart (el "ticker"))}} "Restart"]]]]
+      [:wa-button {:size "s" :on {:click #(.restart (:ticker @refs))}} "Restart"]]]]
 
    [tile {:tags ["wa-animation"]}
     [:div.row
@@ -697,15 +720,86 @@
        (str "variant=" (:mut-variant s) " (click to mutate)")]]]]]
 
    [tile {:tags ["wa-random-content"]}
-    [:wa-random-content {:id "random" :on {:wa-content-change #(log! "wa-random-content" "wa-content-change")}}
+    [:wa-random-content (merge (ref :random) {:id "random" :on {:wa-content-change #(log! "wa-random-content" "wa-content-change")}})
      [:wa-callout {:variant "brand"} [:wa-icon {:slot "icon" :name "lightbulb"}] "Tip: Replicant attaches every :on handler natively."]
      [:wa-callout {:variant "success"} [:wa-icon {:slot "icon" :name "lightbulb"}] "Tip: use dist-cdn, not dist, without a bundler."]
      [:wa-callout {:variant "warning"} [:wa-icon {:slot "icon" :name "lightbulb"}] "Tip: register a local icon library for offline use."]]
-    [:wa-button {:size "s" :style {:margin-top ".75rem"} :on {:click #(.randomize (el "random"))}} "Randomize"]]])
+    [:wa-button {:size "s" :style {:margin-top ".75rem"} :on {:click #(.randomize (:random @refs))}} "Randomize"]]])
 
 ;; ---------------------------------------------------------------------------
+;; ---------------------------------------------------------------------------
+;; Replicant features beyond hiccup + events.
+(def alias-usage "[:ks/stat {:label \"Volume\"} (:volume s)]")
+
+(defn replicant-features [s]
+  [[tile {:tags ["life-cycle hooks"] :wide? false}
+    [:div.stack
+     [:div.muted "Hooks are attributes: " [:code ":replicant/on-mount"] ", " [:code ":replicant/on-render"] ", "
+      [:code ":replicant/on-unmount"] ". A function hook gets a map with " [:code ":replicant/node"] ", "
+      [:code ":replicant/remember"] " and " [:code ":replicant/memory"] "; a data hook goes to dispatch, like an event."]
+     [:wa-switch {:id "lc-toggle" :checked (:lc-show? s)
+                  :on {:change #(swap! state assoc :lc-show? (.. % -target -checked))}} "Show search field"]
+     (when (:lc-show? s)
+       [:div {:replicant/key "lc-wrap"
+              ;; data hooks: dispatched like events, :life-cycle/phase filled in
+              :replicant/on-mount   [[:log "life-cycle" :life-cycle/phase "search field (data hook)"]]
+              :replicant/on-unmount [[:log "life-cycle" :life-cycle/phase "search field (data hook)"]]}
+        [:wa-input {:id "lc-input" :label "Focused on mount" :placeholder "Type here"
+                    ;; function hook: imperative DOM access, here to focus the field
+                    :replicant/on-mount (fn [{:replicant/keys [node]}] (js/setTimeout #(.focus node) 50))}]])
+     [:div {:id "lc-renders"
+            ;; on-render runs on every render pass that includes this element (measured:
+            ;; here, every state change, even unrelated ones).
+            ;; memory: a value kept on the DOM node between hook calls, no app state involved
+            :replicant/on-render (fn [{:replicant/keys [node remember memory]}]
+                                   (let [n (inc (or memory 0))]
+                                     (remember n)
+                                     (set! (.-textContent node) (str "on-render has run " n " times (every render pass; count kept in hook memory)"))))}]
+     [:div.muted "Refs: stepper, toast, ticker and random-content are reached through "
+      [:code "(ref :k)"] " (an on-mount hook storing the node), not getElementById. Registered: "
+      [:code {:id "refs-list"} (pr-str (vec (sort (keys @refs))))]]]]
+
+   [tile {:tags ["transitions"]}
+    [:div.stack
+     [:div.muted [:code ":replicant/mounting"] " and " [:code ":replicant/unmounting"]
+      " are attribute maps merged in while an element enters or leaves; CSS transitions animate the difference, and Replicant keeps a leaving element in the DOM until its transition ends."]
+     [:div.row
+      [:wa-button {:id "tr-add" :size "s" :variant "brand" :on {:click [[:demo/add-item]]}}
+       [:wa-icon {:slot "start" :name "plus"}] "Add item"]]
+     (into [:div {:class "tr-list" :id "tr-list"}]
+           (for [id (:items s)]
+             [:div {:replicant/key id :id (str "item-" id) :class "tr-item"
+                    :replicant/mounting   {:class "tr-item tr-out-left"}
+                    :replicant/unmounting {:class "tr-item tr-out-right"}}
+              [:span (str "Item " id)]
+              [:wa-button {:size "s" :appearance "plain" :class "tr-remove"
+                           :on {:click [[:demo/remove-item id]]}}
+               [:wa-icon {:name "xmark" :label (str "Remove item " id)}]]]))]]
+
+   [tile {:tags ["aliases"]}
+    [:div.stack
+     [:div.muted "Your own hiccup tags: " [:code "(replicant.alias/register! :ks/stat stat)"]
+      " in views.cljc. An alias function gets " [:code "[attrs children]"] " and returns hiccup."]
+     [:div.ks-stats {:id "alias-demo"}
+      [:ks/stat {:label "Volume"} (:volume s)]
+      [:ks/stat {:label "Page"} (:page s)]
+      [:ks/stat {:label "Rating"} (:rating s)]]
+     [:ks/chip {:initials (v/initials (:name s))} (:name s)]
+     [:div.muted "You write:"]
+     [:pre.code alias-usage]
+     [:div.muted "Replicant renders:"]
+     [:pre.code {:id "alias-expanded"} (rs/render [:ks/stat {:label "Volume"} (:volume s)])]]]
+
+   [tile {:tags ["replicant.string"]}
+    [:div.stack
+     [:div.muted "The same view functions render to an HTML string with " [:code "replicant.string/render"]
+      ": here in the browser, and on the server under " [:code "bb dev-ssr"] ". Handlers and hooks are dropped; aliases expand."]
+     (v/profile-card (select-keys s [:name :email :qty]))
+     [:div.muted [:code "(rs/render (v/profile-card {...}))"] " - updates as you edit the profile form:"]
+     [:pre.code {:id "string-out"} (rs/render (v/profile-card (select-keys s [:name :email :qty])))]]]])
+
 (def categories
-  [["Actions" actions] ["Forms" forms] ["Feedback" feedback] ["Layout" layout]
+  [["Replicant features" replicant-features] ["Actions" actions] ["Forms" forms] ["Feedback" feedback] ["Layout" layout]
    ["Navigation" navigation] ["Media" media] ["Helpers" helpers]])
 
 ;; The State panel: one row per top-level key, sorted, with the keys changed by

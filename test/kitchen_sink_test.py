@@ -1,4 +1,4 @@
-"""Interaction suite: 72 checks across the Web Awesome components, driven like a user would.
+"""Interaction suite: 81 checks across the Web Awesome components, driven like a user would.
 
 Usage (a server running, see README):
     python3 test/kitchen_sink_test.py http://localhost:8090/index.html     # app version (bb dev)
@@ -284,6 +284,58 @@ async def main():
         await step("events as data: placeholders filled from the event (pagination)", page_data,
                    lambda: _r(ev("document.getElementById('last-action').textContent"),
                               lambda t: (t == '[[:store/assoc :page 7] [:log "wa-pagination" "wa-page-change" 7]]', t)))
+
+        # ---------------------------------------------------------------- Replicant features
+        await step("refs: nodes captured by on-mount hooks", lambda: W(10),
+                   lambda: _r(ev("document.getElementById('refs-list').textContent"),
+                              lambda t: (t == "[:random :stepper :ticker :toast]", t)))
+        async def lc_on():
+            await pg.locator("#lc-toggle").scroll_into_view_if_needed(); await click("#lc-toggle"); await W(400)
+        await step("life-cycle: function hook focuses input on mount", lc_on,
+                   lambda: _r(ev("[!!document.getElementById('lc-input'), document.activeElement && document.activeElement.id]"),
+                              lambda v: (v == [True, "lc-input"], v)))
+        await step("life-cycle: data hook dispatched on mount", lambda: W(10),
+                   lambda: _r(log(), lambda l: ("life-cycle · mount → search field (data hook)" in l, "log")))
+        async def lc_off():
+            await click("#lc-toggle"); await W(300)
+        await step("life-cycle: data hook dispatched on unmount", lc_off,
+                   lambda: _r(ev("[!!document.getElementById('lc-input'), document.getElementById('log').innerText.includes('life-cycle · unmount → search field (data hook)')]"),
+                              lambda v: (v == [False, True], v)))
+        cnt = "parseInt(document.getElementById('lc-renders').textContent.match(/\\d+/)[0])"
+        async def mem():
+            before = await ev(cnt); await click("#data-inc"); return before
+        async def mem_check():
+            return (await ev(cnt) > 1, await ev("document.getElementById('lc-renders').textContent"))
+        await step("life-cycle: on-render memory persists across renders", mem, mem_check)
+        op = "(id)=>{const e=document.getElementById(id);return e?parseFloat(getComputedStyle(e).opacity):null}"
+        async def tr_add():
+            await pg.locator("#tr-add").scroll_into_view_if_needed(); await pg.locator("#tr-add").click()
+            await W(60)
+            return await pg.evaluate(op, "item-4")
+        async def tr_add_check():
+            await W(700); end = await pg.evaluate(op, "item-4")
+            return (end == 1.0, f"opacity after 700ms = {end}")
+        early = {}
+        async def tr_add_step():
+            early["mid"] = await tr_add()
+        await step("transitions: mounting animates in", tr_add_step,
+                   lambda: _r(tr_add_check(), lambda v: (v[0] and early["mid"] is not None and early["mid"] < 1.0, f"{v[1]}; at 60ms {early['mid']}")))
+        async def tr_remove():
+            await pg.locator("#item-4 .tr-remove").click(); await W(80)
+            early["during"] = await pg.evaluate(op, "item-4")
+        async def tr_remove_check():
+            await W(900); gone = await pg.evaluate("!document.getElementById('item-4')")
+            st = await S()
+            return (early["during"] is not None and gone and 4 not in st["items"], f"in DOM at 80ms with opacity {early['during']}; removed later: {gone}")
+        await step("transitions: unmounting stays in DOM until its transition ends", tr_remove, tr_remove_check)
+        await step("aliases: :ks/stat expands to hiccup", lambda: W(10),
+                   lambda: _r(ev("[document.querySelectorAll('#alias-demo .ks-stat').length, document.getElementById('alias-expanded').textContent]"),
+                              lambda v: (v[0] == 3 and v[1].startswith('<div class=\"ks-stat\"><div class=\"ks-stat-label\">Volume</div>'), v)))
+        async def str_name():
+            await pg.locator("#f-name input").first.click(); await pg.keyboard.press("Control+a"); await pg.keyboard.type("Rich Hickey"); await W(250)
+        await step("replicant.string: HTML output follows state", str_name,
+                   lambda: _r(ev("document.getElementById('string-out').textContent"),
+                              lambda t: (t.startswith('<div class="ks-profile">') and "Rich Hickey" in t and 'initials="RH"' in t and ":on" not in t, t[:120])))
 
         # ---------------------------------------------------------------- side panels stay usable
         async def to_bottom():

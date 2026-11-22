@@ -6,9 +6,15 @@
 ;;   POST /api/profile    -> EDN body, validated, stored in data/profiles.edn
 ;;   GET  /api/profiles   -> EDN list of stored profiles
 ;;   GET  /ws             -> websocket: {:op :hello}, {:op :tick} every 5 s,
-;;                           {:op :reload :file "cljs/..."} when a .cljs file changes
+;;                           {:op :reload :file "cljs/..."} when a .cljs/.cljc file changes
+;;   GET  /ssr/profiles   -> server-side rendering: the shared views in
+;;                           public/cljs/views.cljc rendered to HTML with
+;;                           replicant.string (only under `bb dev-ssr`, see below)
 ;;
-;; Run: bb dev   (from the repo root)   or   cd app && bb server.clj
+;; Run: bb dev       (from the repo root)   or   cd app && bb server.clj
+;;      bb dev-ssr   same server plus Replicant on the classpath (app/ssr.edn).
+;;                   Resolving that dependency needs a Java runtime the first
+;;                   time (babashka's deps resolution); plain `bb dev` needs none.
 ;; Env: PORT (default 8090)
 (ns server
   (:require [babashka.fs :as fs]
@@ -48,6 +54,42 @@
                   :headers {"Content-Type" "application/edn; charset=utf-8"}
                   :body (pr-str body)}))
 
+;; ---------------------------------------------------------------- SSR (optional)
+(def ssr-available?
+  (try (require 'replicant.string) true
+       (catch Exception _ false)))
+
+(defn ssr-profiles []
+  (if-not ssr-available?
+    {:status 501 :headers {"Content-Type" "text/plain; charset=utf-8"}
+     :body (str "Server-side rendering needs Replicant on the server's classpath.\n"
+                "Start the server with `bb dev-ssr` (uses app/ssr.edn) instead of `bb dev`.\n")}
+    (do
+      ;; the very file the browser loads; re-read per request so edits show up
+      (load-file (str (fs/path public-dir "cljs" "views.cljc")))
+      (let [render  (requiring-resolve 'replicant.string/render)
+            table   (resolve 'kitchen-sink.views/profiles-table)
+            card    (resolve 'kitchen-sink.views/profile-card)
+            ps      @profiles]
+        {:status 200
+         :headers {"Content-Type" "text/html; charset=utf-8"}
+         :body (str "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+                    "<title>Server-rendered profiles</title>"
+                    "<style>body{font-family:system-ui,sans-serif;padding:1.5rem;max-width:56rem}"
+                    "table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:.3rem .6rem;text-align:left}"
+                    ".ks-stats{display:flex;gap:.6rem}.ks-stat{border:1px solid #ddd;border-radius:8px;padding:.3rem .6rem}"
+                    ".ks-stat-label{font-size:11px;text-transform:uppercase;color:#666}.ks-stat-value{font-weight:600}"
+                    ".ks-profile{display:flex;flex-direction:column;gap:.5rem;margin:.75rem 0}</style></head><body>"
+                    (render [:main
+                             [:h1 "Rendered on the server"]
+                             [:p "By babashka, with " [:code "replicant.string/render"] ", from "
+                              [:code "app/public/cljs/views.cljc"] " - the same functions the browser renders."]
+                             [:h2 (str (count ps) " stored profiles")]
+                             (table ps)
+                             [:h2 "Profile cards"]
+                             (for [p ps] [:div {:replicant/key (:id p)} (card p)])])
+                    "</body></html>")}))))
+
 (defn now [] (str (java.time.LocalTime/now (java.time.ZoneId/systemDefault))))
 (defn hhmmss [] (subs (now) 0 8))
 
@@ -85,6 +127,7 @@
     [:get "/ws"]            (ws-handler req)
     [:post "/api/profile"]  (save-profile req)
     [:get "/api/profiles"]  (edn-response {:profiles @profiles})
+    [:get "/ssr/profiles"]  (ssr-profiles)
     (if (= request-method :get)
       (static uri)
       {:status 405 :body "method not allowed"})))
@@ -97,10 +140,10 @@
     (recur)))
 
 (defn watcher
-  "Polls public/cljs for changed .cljs files and tells browsers to re-evaluate them."
+  "Polls public/cljs for changed .cljs/.cljc files and tells browsers to re-evaluate them."
   []
   (loop [seen {}]
-    (let [now (into {} (for [f (fs/glob public-dir "cljs/**.cljs")]
+    (let [now (into {} (for [f (fs/glob public-dir "cljs/**.{cljs,cljc}")]
                          [(str (fs/relativize public-dir f)) (.toMillis (fs/last-modified-time f))]))]
       (doseq [[f t] now :when (and (contains? seen f) (not= t (seen f)))]
         (println "changed" f "-> reload")
@@ -112,7 +155,8 @@
   (http/run-server #'handler {:port port})
   (future (ticker))
   (future (watcher))
-  (println (str "kitchen sink: http://localhost:" port))
+  (println (str "kitchen sink: http://localhost:" port
+                (if ssr-available? "  (SSR: /ssr/profiles)" "  (SSR off: use bb dev-ssr)")))
   @(promise))
 
 (when (= *file* (System/getProperty "babashka.file")) (-main))

@@ -52,6 +52,18 @@ async def main():
         r = await pg.request.post(APP.rstrip("/") + "/api/profile", data="{:name \"\"}", headers={"Content-Type": "application/edn"})
         check("API validates (blank name -> 400)", r.status == 400, f"HTTP {r.status} {await r.text()}")
 
+        # server-side rendering route: explained 501 under plain `bb dev`
+        r = await pg.request.get(APP.rstrip("/") + "/ssr/profiles")
+        check("SSR route explains how to enable it under bb dev", r.status == 501 and "bb dev-ssr" in await r.text(), f"HTTP {r.status}")
+        ssr = os.environ.get("KS_SSR_URL")   # e.g. http://localhost:8093 (a `bb dev-ssr` server)
+        if ssr:
+            api = await pg.request.get(ssr + "/api/profiles"); n = (await api.text()).count(":id ")
+            r = await pg.request.get(ssr + "/ssr/profiles"); html = await r.text()
+            rows = html.count("<tr>") - 1
+            check("SSR (bb dev-ssr) renders the shared profiles-table", r.status == 200 and 'id="profiles-table"' in html and rows == n,
+                  f"HTTP {r.status}, {rows} rows vs {n} profiles")
+            check("SSR expands aliases and drops replicant attributes", 'class="ks-stat"' in html and "replicant/" not in html and ":ks/" not in html)
+
         # second client is counted by the server
         pg2 = await ctx.new_page(); await pg2.goto(APP); await pg2.wait_for_function("window.__ready===true", timeout=60000)
         await pg.wait_for_function("document.body.innerText.includes('clients 2')", timeout=8000)

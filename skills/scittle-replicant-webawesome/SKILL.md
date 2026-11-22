@@ -66,7 +66,7 @@ Serve over HTTP (any static server, e.g. `bb scripts/serve_static.clj <dir> <por
 3. **Events: `:on {:event-name handler}`** - native listeners, so standard (`input`, `change`, `click`) and custom (`wa-hide`, `wa-tab-show`, …) events work the same.
 4. **Attributes:** `true` sets a boolean attribute, `false`/`nil` removes it (`:open`, `:checked`, `:disabled`, `:with-caret`). `:value` is set as a **property** (so `[value=x]` CSS selectors won't match it). Pass arrays as JS: `:value (clj->js v)` for `wa-select :multiple`.
 5. **Repeated children:** add `:replicant/key`.
-6. **Component methods:** give an `:id`, call on the node: `(.next (js/document.getElementById "stepper"))`.
+6. **DOM nodes and component methods:** capture the node with a life-cycle hook, then call methods on it: `:replicant/on-mount (fn [{:replicant/keys [node]}] (swap! refs assoc :stepper node))`, later `(.next (:stepper @refs))`. Keep `refs` in a separate atom (not the state atom). Hooks: `:replicant/on-mount`, `:replicant/on-render` (fires on **every** render pass), `:replicant/on-unmount`; the hook map also has `:replicant/remember` / `:replicant/memory` for per-node data. Hooks can be data too (dispatched with `:replicant/trigger :replicant.trigger/life-cycle`); never change state from an `on-render` data hook.
 7. **Controlled inputs:** bind `:value`/`:checked` to state and update from events - works for every form control **except `wa-otp-input`: leave it uncontrolled** (read `.value` in `input`/`wa-complete`), or typed digits are lost.
 8. **Values are strings**, including `wa-number-input` (`"3"`); parse when you need numbers.
 9. **Dialogs/drawers:** bind `:open` to state; on `wa-hide`, set it false only when `(= (.-target e) (.-currentTarget e))` (child overlays bubble `wa-hide` too).
@@ -95,7 +95,13 @@ Toasts: one `[:wa-toast {:id "toast"}]`, then `(.create (js/document.getElementB
 
 For any other component, read `dist-cdn/custom-elements.json` or `dist-cdn/skills/webawesome/references/components/<name>.md` in the `@awesome.me/webawesome` package (attributes, events, methods, slots, examples) - don't guess.
 
-## 4. Talking to a server
+## 4. Transitions, aliases, string rendering
+
+- **Transitions:** `:replicant/mounting {:class "item entering"}` / `:replicant/unmounting {:class "item leaving"}` are attribute maps merged in on enter/leave (shallow merge, so restate `:class`); CSS `transition` does the animation, and Replicant keeps a leaving element until its transition ends. Give such elements a `:replicant/key`.
+- **Aliases:** `(replicant.alias/register! :ui/stat (fn [attrs children] [:div ...]))`, then use `[:ui/stat {:label "x"} 1]` anywhere. Alias keywords must be namespaced. Or pass `{:aliases {...}}` to `d/render`.
+- **String rendering:** `(replicant.string/render hiccup)` returns HTML; handlers and hooks are dropped, aliases expand. Keep views interop-free in a `.cljc` file and the same functions render in the browser and on a bb server (bb needs `no.cjohansen/replicant` in its `:deps`, which requires Java once to resolve).
+
+## 5. Talking to a server
 
 ```clojure
 (require '[clojure.edn :as edn])
@@ -108,7 +114,7 @@ For any other component, read `dist-cdn/custom-elements.json` or `dist-cdn/skill
 
 Server push: one `js/WebSocket`, EDN messages dispatched on `:op`; keep the socket in a `defonce` so re-evaluation doesn't open a second one. A babashka/http-kit server with an EDN API, websocket and hot reload is in the reference repo (`app/server.clj`).
 
-## 5. Setup traps
+## 6. Setup traps
 
 - Use Web Awesome's **`dist-cdn`** build. `dist` has bare imports (`lit`, …) that need a bundler; symptom: components never upgrade.
 - Icons default to Font Awesome's kit CDN; register a library (template does). `wa-number-input` asks that library for `plus`/`minus`, so a trimmed self-hosted icon set must include them.
@@ -117,7 +123,7 @@ Server push: one `js/WebSocket`, EDN messages dispatched on `:op`; keep the sock
 - Experimental in 3.15.0: carousel, code-highlighter, counter, lightbox, markdown, number-ticker, tag-input.
 - Strict-CSP hosts that block external stylesheets: self-host and flatten `webawesome.css` (it `@import`s four files).
 
-## 6. Verify before you say it works
+## 7. Verify before you say it works
 
 Open the page in a real browser (Playwright/Chrome) and check:
 
