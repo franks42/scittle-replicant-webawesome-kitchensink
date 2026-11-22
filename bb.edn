@@ -1,0 +1,7 @@
+{:tasks
+ {dev          {:doc  "App server: static files, EDN API, websocket push, hot reload (PORT, default 8090)"
+                :task (shell {:dir "app"} "bb server.clj")}
+  build-single {:doc  "Generate single-file/index.html from app/ (inlined cljs + embedded assets)"
+                :task (load-file "scripts/build_single.clj")}
+  serve-single {:doc  "Serve single-file/ statically (PORT, default 8091)"
+                :task (load-file "scripts/serve_static.clj")}}}

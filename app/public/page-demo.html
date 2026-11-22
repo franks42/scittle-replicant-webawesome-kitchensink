@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en" class="wa-theme-default">
+<head>
+  <meta charset="utf-8" />
+  <title>wa-page demo</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@awesome.me/webawesome@3.15.0/dist-cdn/styles/webawesome.css" />
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@awesome.me/webawesome@3.15.0/dist-cdn/webawesome.loader.js" data-webawesome="https://cdn.jsdelivr.net/npm/@awesome.me/webawesome@3.15.0/dist-cdn/"></script>
+  <script type="module">
+    import { registerIconLibrary } from "https://cdn.jsdelivr.net/npm/@awesome.me/webawesome@3.15.0/dist-cdn/webawesome.loader.js";
+    registerIconLibrary("default", { resolver: (n) => `https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.3.1/svgs/solid/${n}.svg`, mutator: (s) => s.setAttribute("fill", "currentColor") });
+  </script>
+  <style>
+    body { margin: 0; font-family: var(--wa-font-family-body); }
+    [slot=header], [slot=footer] { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.5rem; }
+    [slot=navigation] { display: flex; flex-direction: column; gap: .5rem; padding: 1rem; }
+    [slot=aside] { padding: 1rem; }
+    main { padding: 1.5rem; }
+  </style>
+</head>
+<body>
+  <wa-page mobile-breakpoint="600">
+    <header slot="header"><wa-icon name="rocket"></wa-icon><strong>Acme Console</strong></header>
+    <wa-breadcrumb slot="subheader" style="padding: .5rem 1.5rem"><wa-breadcrumb-item>Home</wa-breadcrumb-item><wa-breadcrumb-item>Projects</wa-breadcrumb-item><wa-breadcrumb-item>Overview</wa-breadcrumb-item></wa-breadcrumb>
+    <nav slot="navigation">
+      <a href="#">Dashboard</a><a href="#">Projects</a><a href="#">Team</a><a href="#">Settings</a>
+    </nav>
+    <main>
+      <h2>Overview</h2>
+      <p>This is a full <code>&lt;wa-page&gt;</code> layout: header, subheader, navigation, main, aside and footer slots. Narrow the frame below 600px and the navigation collapses into a drawer.</p>
+      <wa-card><strong>Deployments</strong><br/>12 this week</wa-card>
+    </main>
+    <aside slot="aside"><strong>On this page</strong><p>Overview<br/>Deployments</p></aside>
+    <footer slot="footer"><small>© Acme</small></footer>
+  </wa-page>
+</body>
+</html>
