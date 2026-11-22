@@ -622,6 +622,18 @@
   [["Actions" actions] ["Forms" forms] ["Feedback" feedback] ["Layout" layout]
    ["Navigation" navigation] ["Media" media] ["Helpers" helpers]])
 
+;; The State panel: one row per top-level key, sorted, with the keys changed by
+;; the most recent swap! highlighted. (:log and :form are shown elsewhere.)
+(defonce last-change (atom {:keys #{} :id 0}))
+
+(defn state-panel [s]
+  (let [changed (:keys @last-change)]
+    (into [:div.state {:id "state"}]
+          (for [[k v] (into (sorted-map) (dissoc s :log :form))]
+            [:div {:replicant/key (str k) :data-key (str k)
+                   :class (if (contains? changed k) "kv changed" "kv")}
+             [:span.k (str k)] " " (pr-str v)]))))
+
 (defn view [s]
   [:div.layout
    [:main
@@ -634,12 +646,27 @@
    [:aside.side
     [:h3 {:style {:margin "0 0 .5rem"}} "Event log"]
     [:div.log {:id "log"} (str/join "\n" (:log s))]
-    [:h3 {:style {:margin "1rem 0 .5rem"}} "State"]
-    [:div.state {:id "state"} (pr-str (dissoc s :log :form))]]])
+    [:h3 {:style {:margin "1rem 0 .5rem"}} "State " [:span.muted "(changed keys highlighted)"]]
+    (state-panel s)]])
 
 (def root (js/document.getElementById "app"))
 (defn render! [] (d/render root (view @state)))
-(add-watch state ::render (fn [_ _ _ _] (render!)))
+
+(defn note-change!
+  "Remember which top-level keys the last swap! changed; clear the highlight
+   after a moment unless another change came in."
+  [old new]
+  (let [ks (into #{} (remove #(= (get old %) (get new %))) (into (set (keys old)) (keys new)))]
+    (when (seq (disj ks :log :form))
+      (let [id (inc (:id @last-change))]
+        (reset! last-change {:keys ks :id id})
+        (js/setTimeout #(when (= id (:id @last-change))
+                          (swap! last-change assoc :keys #{})
+                          (render!))
+                       2000)))))
+
+;; Every swap! on state lands here: record what changed, then re-render.
+(add-watch state ::render (fn [_ _ old new] (note-change! old new) (render!)))
 (render!)
 (set! (.-__state js/window) (fn [] (clj->js (dissoc @state :interests))))
 (set! (.-__ready js/window) true)

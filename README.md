@@ -17,9 +17,25 @@ This is a **kitchen-sink demo**: one page that puts every free Web Awesome compo
 
 It is **not a library and not a starter app you should ship as-is.** Treat it as a template you adapt once you understand it:
 
-1. Run it, click around, and watch the **Event log** and **State** panels on the right. Every interaction is a Replicant `:on` handler doing a `swap!` on one atom.
+1. Run it, click around, and watch the **Event log** and **State** panels on the right (see below). Every interaction is a Replicant `:on` handler doing a `swap!` on one atom, and the two panels show you both halves of that.
 2. Read `app/public/cljs/kitchen_sink.cljs` with the page open (see *What to look for* below).
 3. Copy the parts you need into your own project and delete the rest (see *Using it as a template*).
+
+## Watch the Event log and State panels
+
+The two panels on the right are the best way to learn how the page works. Click, type or drag anything and watch both:
+
+- **Event log** (newest first): which handler fired and with what value, e.g. `wa-button-group · select → right` or `wa-dialog · wa-hide`. That tells you which DOM event a component emits and what you read from it.
+- **State** (one row per key, sorted): the whole app state, with the keys the last `swap!` changed **highlighted for two seconds**. That tells you exactly what your handler changed.
+
+So every interaction shows the full loop: **event → handler → `swap!` → changed keys → re-render**. In the screenshot above, clicking the right-align button logged `select → right` and highlighted `:align "right"`.
+
+Things you'll notice while the page sits idle are real state changes, not noise:
+
+- In app mode `:srv` lights up every 5 s: that's the server pushing a `:tick` over the websocket.
+- `:size` changes once right after load, when the resize-observer demo first measures its box.
+
+Both panels are ordinary code you can keep in your own app while developing: `log!`, `state-panel` and `note-change!` in `kitchen_sink.cljs`.
 
 ## Architecture
 
@@ -46,7 +62,7 @@ It is **not a library and not a starter app you should ship as-is.** Treat it as
     insides in shadow DOM; your code never touches Lit)
 ```
 
-- **One atom, one render loop.** All UI state is in `state`; `add-watch` re-renders the whole view on every change. Replicant diffs and updates only what changed.
+- **One atom, one render loop.** All UI state is in `state`; `add-watch` re-renders the whole view on every change (and records which keys changed, for the State panel). Replicant diffs and updates only what changed in the DOM.
 - **Views are plain functions returning hiccup.** No component framework, no lifecycle; `(view s)` is pure data in, data out.
 - **Web Awesome components are just HTML elements.** Replicant sets their attributes/properties and attaches native listeners, so standard events (`input`, `change`) and custom ones (`wa-hide`, `wa-tab-show`, …) work the same way.
 - **The server is optional.** The whole left column of the diagram runs on any static host; the bb server on the right adds an API, push messages and hot reload.
@@ -77,7 +93,8 @@ In `app/public/cljs/kitchen_sink.cljs`, top to bottom:
 | `;; State + helpers`: `state`, `log!`, `on!`, `tile` | The single atom, the event log, a handler helper (`(on! :name tv)` = "store this field's value"), and a layout helper. |
 | `;; Server integration`: `api!`, `post-profile!`, `connect!`, `reload-cljs!`, `server-tile` | Request/response with EDN over `fetch`, server push over one websocket, and hot reload via `scittle.core.eval_string`. **This is the part to grow into a real app.** |
 | `;; Sections`: `actions`, `forms`, `feedback`, `layout`, `navigation`, `media`, `helpers` | One function per category, one tile per component. Copy the tile for the component you need: it shows the attributes to set and the event to handle. |
-| `view`, `render!`, `add-watch` (bottom) | The whole render loop: three lines. |
+| `state-panel`, `note-change!` | The State panel: sorted keys, and the watcher that diffs old vs. new state to highlight what the last `swap!` changed. |
+| `view`, `render!`, `add-watch` (bottom) | The whole render loop: a few lines. |
 
 Patterns worth noticing as you read:
 
@@ -92,7 +109,7 @@ Patterns worth noticing as you read:
 ## Using it as a template
 
 1. **Pick a delivery mode.** Static (`static.html`) if you only need a UI; app (`index.html` + `server.clj`) if you need an API or push; single file if you need one artifact to hand around.
-2. **Keep the skeleton:** the HTML shell (pinned CDN links, icon registration), the mode/asset lines if you keep several modes, `state`, `log!`/`on!` if you like them, and the render loop at the bottom. In app mode also keep `api!`, `connect!`, `reload-cljs!` and `server.clj`.
+2. **Keep the skeleton:** the HTML shell (pinned CDN links, icon registration), the mode/asset lines if you keep several modes, `state`, `log!`/`on!` if you like them, the Event log and State panels while you develop (`log!`, `state-panel`, `note-change!`), and the render loop at the bottom. In app mode also keep `api!`, `connect!`, `reload-cljs!` and `server.clj`.
 3. **Delete the demo:** the seven section functions, `categories`, `tree-data`, `images`, `markdown-src`, the demo images, `include.html` and `page-demo.html`, and the profile routes in `server.clj`.
 4. **Add your views** as plain functions over `state`, copying the tiles of the components you use from the kitchen sink.
 5. **Add server routes** to `handler` in `server.clj` and call them with `api!`.
@@ -140,7 +157,7 @@ scripts/
 single-file/index.html        GENERATED - don't edit by hand
 docs/GUIDE.md                 how to work with this stack (written for AI assistants; useful for humans)
 test/
-  kitchen_sink_test.py        60 interaction checks (Playwright), for either version
+  kitchen_sink_test.py        63 interaction checks (Playwright), for any of the three versions
   server_test.py              17 checks: API, websocket, client count, hot reload, single-file and static modes
 bb.edn                        tasks: dev, build-single, serve-single
 ```
@@ -150,10 +167,10 @@ bb.edn                        tasks: dev, build-single, serve-single
 ```bash
 pip install playwright && playwright install chromium
 bb dev & bb serve-single &
-python3 test/kitchen_sink_test.py http://localhost:8090/index.html   # 60/60
-python3 test/kitchen_sink_test.py http://localhost:8091/index.html   # 60/60
+python3 test/kitchen_sink_test.py http://localhost:8090/index.html   # 63/63
+python3 test/kitchen_sink_test.py http://localhost:8091/index.html   # 63/63
 cd app/public && python3 -m http.server 8092 &
-python3 test/kitchen_sink_test.py http://localhost:8092/static.html  # 60/60
+python3 test/kitchen_sink_test.py http://localhost:8092/static.html  # 63/63
 python3 test/server_test.py                                          # 17/17
 ```
 

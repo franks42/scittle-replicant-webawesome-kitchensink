@@ -37,6 +37,9 @@
     .side { position: sticky; top: 1rem; }
     .log { font: 12px/1.5 var(--wa-font-family-code); background: #111; color: #9ef09e; border-radius: 10px; padding: .75rem; min-height: 280px; white-space: pre-wrap; }
     .state { font: 11px/1.45 var(--wa-font-family-code); background: var(--wa-color-surface-default); border: 1px solid var(--wa-color-surface-border); border-radius: 10px; padding: .75rem; white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto; }
+    .state .kv { padding: 1px 4px; border-radius: 4px; transition: background-color .6s ease-out; }
+    .state .kv.changed { background: #fff3a3; transition: none; }
+    .state .k { color: var(--wa-color-brand-on-quiet); font-weight: 600; }
     .box { width: 56px; height: 56px; border-radius: 10px; background: var(--wa-color-brand-fill-loud); }
     .io-root { height: 150px; overflow: auto; border: 1px dashed var(--wa-color-surface-border); border-radius: 8px; padding: .5rem; }
     .io-target { padding: 1rem; border-radius: 8px; background: var(--wa-color-neutral-fill-quiet); transition: background .3s; }

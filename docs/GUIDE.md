@@ -1,6 +1,6 @@
 # Building browser UIs with Scittle + Replicant + Web Awesome
 
-A working guide for AI assistants. Everything marked **verified** was exercised in headless Chrome (Playwright) against a 78-component kitchen-sink page; 60/60 interaction checks passed, and the published page was also opened on an iPad. Items marked **unverified** are stated as such.
+A working guide for AI assistants. Everything marked **verified** was exercised in headless Chrome (Playwright) against a 78-component kitchen-sink page; 60/60 interaction checks passed (63/63 in the repo's current suite, which adds State-panel checks), and the published page was also opened on an iPad. Items marked **unverified** are stated as such.
 
 Versions tested: Scittle 0.8.33 (with its Replicant plugin), Web Awesome 3.15.0 (MIT, free tier), Font Awesome Free solid SVGs for icons.
 

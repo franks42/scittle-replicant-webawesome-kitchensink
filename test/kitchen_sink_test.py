@@ -1,4 +1,4 @@
-"""Interaction suite: 60 checks across the Web Awesome components, driven like a user would.
+"""Interaction suite: 63 checks across the Web Awesome components, driven like a user would.
 
 Usage (a server running, see README):
     python3 test/kitchen_sink_test.py http://localhost:8090/index.html     # app version
@@ -246,6 +246,20 @@ async def main():
             for _ in range(3): await click("wa-button:has-text('Randomize')")
             return n0
         await step("wa-random-content randomize", rnd, lambda: _r(log(), lambda l: (l.count("wa-content-change") >= 2, "log")))
+
+        # ---------------------------------------------------------------- state panel
+        await step("state panel: keys sorted", lambda: W(10),
+                   lambda: _r(ev("[...document.querySelectorAll('#state [data-key]')].map(e=>e.dataset.key)"),
+                              lambda ks: (ks == sorted(ks) and len(ks) > 20, f"{len(ks)} keys")))
+        async def flip():
+            await pg.locator("#f-notify").scroll_into_view_if_needed(); await pg.locator("#f-notify").click(); await W(200)
+        await step("state panel: highlights exactly the changed key", flip,
+                   lambda: _r(ev("[...document.querySelectorAll('#state .kv.changed')].map(e=>e.dataset.key)"),
+                              lambda ks: (ks == [":notify?"], ks)))
+        # (in app mode the server tick legitimately re-highlights :srv every 5 s)
+        await step("state panel: highlight clears", lambda: W(2600),
+                   lambda: _r(ev("[...document.querySelectorAll('#state .kv.changed')].map(e=>e.dataset.key)"),
+                              lambda ks: (":notify?" not in ks and set(ks) <= {":srv"}, ks)))
 
         if os.environ.get("KS_SCREENSHOT"): await pg.screenshot(path=os.environ["KS_SCREENSHOT"], full_page=True)
         passed = sum(1 for r in results if r[1])
