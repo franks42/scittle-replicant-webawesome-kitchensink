@@ -3,7 +3,7 @@
 **Live demos:** [single file](https://franks42.github.io/scittle-replicant-webawesome-kitchensink/single-file/) · [HTML + separate .cljs](https://franks42.github.io/scittle-replicant-webawesome-kitchensink/app/public/static.html)  
 **Guide:** [docs/GUIDE.md](docs/GUIDE.md) (also on the site: [GUIDE.html](https://franks42.github.io/scittle-replicant-webawesome-kitchensink/docs/GUIDE.html))
 
-A template for building browser UIs in ClojureScript **without React, a bundler, or a build step**:
+Browser UIs in ClojureScript **without React, a bundler, or a build step**:
 
 - **[Scittle](https://github.com/babashka/scittle)** evaluates ClojureScript in the browser.
 - **[Replicant](https://github.com/cjohansen/replicant)** renders hiccup to the DOM (loaded as a Scittle plugin).
@@ -11,17 +11,92 @@ A template for building browser UIs in ClojureScript **without React, a bundler,
 
 ![Kitchen sink, app version](docs/screenshot.png)
 
-The same UI ships three ways, all from one `kitchen_sink.cljs`:
+## What this is (and isn't)
 
-| | `single-file/index.html` | `app/public/static.html` | `app/public/index.html` |
+This is a **kitchen-sink demo**: one page that puts every free Web Awesome component on screen, wires each interactive one to a single ClojureScript atom, and logs every event it handles. Its job is to show, by running code, that the stack works and *how* each component is driven: which attribute to set, which event to listen for, where the value lives in the event.
+
+It is **not a library and not a starter app you should ship as-is.** Treat it as a template you adapt once you understand it:
+
+1. Run it, click around, and watch the **Event log** and **State** panels on the right. Every interaction is a Replicant `:on` handler doing a `swap!` on one atom.
+2. Read `app/public/cljs/kitchen_sink.cljs` with the page open (see *What to look for* below).
+3. Copy the parts you need into your own project and delete the rest (see *Using it as a template*).
+
+## Architecture
+
+```
+ Browser                                                     Server (app mode only)
+ ───────────────────────────────────────────────────         ───────────────────────────────
+ HTML shell (index.html / static.html)                       app/server.clj  (babashka + http-kit)
+   ├─ <link> Web Awesome CSS ─┐                                ├─ GET  /…            static files
+   ├─ <script> WA autoloader ─┤ pinned jsdelivr URLs           ├─ POST /api/profile  EDN in/out
+   ├─ <script> Scittle ───────┤ (no npm, no bundler)           ├─ GET  /api/profiles EDN out
+   ├─ <script> Replicant plugin                                ├─ /ws  websocket: :tick, :reload
+   └─ <script type="application/x-scittle"                     └─ watcher: .cljs changed → :reload
+             src="cljs/kitchen_sink.cljs">
+                 │
+                 ▼  Scittle interprets the ClojureScript
+   (defonce state (atom {...}))  ◄────────────────────────┐
+                 │ add-watch → render!                    │ swap!
+                 ▼                                        │
+   (view @state) → hiccup → replicant.dom/render          │
+                 │                                        │
+                 ▼                                        │
+   <wa-input> <wa-select> <wa-dialog> …  ── events ──► :on handlers
+   (Web Awesome custom elements; Lit renders their
+    insides in shadow DOM; your code never touches Lit)
+```
+
+- **One atom, one render loop.** All UI state is in `state`; `add-watch` re-renders the whole view on every change. Replicant diffs and updates only what changed.
+- **Views are plain functions returning hiccup.** No component framework, no lifecycle; `(view s)` is pure data in, data out.
+- **Web Awesome components are just HTML elements.** Replicant sets their attributes/properties and attaches native listeners, so standard events (`input`, `change`) and custom ones (`wa-hide`, `wa-tab-show`, …) work the same way.
+- **The server is optional.** The whole left column of the diagram runs on any static host; the bb server on the right adds an API, push messages and hot reload.
+
+## The three modes
+
+The same `kitchen_sink.cljs` runs in three ways. The HTML page picks the mode by setting `window.KS_MODE` before the Scittle script runs; the cljs reads it into `mode`, `single?` and `server?`:
+
+| | **single** | **static** | **app** (default) |
 |---|---|---|---|
-| What | One self-contained HTML file (~290 KB) | HTML shell loading `cljs/kitchen_sink.cljs` | Same shell + same `.cljs`, served by babashka |
-| Needs | Any static server | Any static server | `bb dev` (babashka) |
+| Page | `single-file/index.html` | `app/public/static.html` | `app/public/index.html` |
+| How the cljs arrives | inlined in the HTML | fetched: `<script src="cljs/kitchen_sink.cljs">` | fetched, same file |
+| Assets (images, include, page-demo) | embedded as `data:` URLs / `srcdoc` | relative files next to the page | relative files, served by bb |
+| Needs | any static host | any static host | `bb dev` |
 | Server features | none | none | EDN API, websocket push, hot reload |
-| Use it to | Hand someone a working page | Keep the UI in a real `.cljs` file, host anywhere | Start a real web app |
-| Hosted | GitHub Pages (this repo) | GitHub Pages (this repo) | your own server |
+| Use it to | hand someone one working file | keep the UI in a real `.cljs` file, host anywhere (e.g. GitHub Pages) | grow into a real web app |
+| Live | [GitHub Pages](https://franks42.github.io/scittle-replicant-webawesome-kitchensink/single-file/) | [GitHub Pages](https://franks42.github.io/scittle-replicant-webawesome-kitchensink/app/public/static.html) | your machine / server |
 
-`app/` is the source of truth; `single-file/index.html` is **generated** from it (`bb build-single`). GitHub Pages serves this repo from `main`, so after changing `app/`, run `bb build-single` and commit the regenerated file to update the live demo.
+`app/` is the source of truth. `single-file/index.html` is **generated** from it by `bb build-single` (inlines the cljs, embeds the assets); never edit it by hand. GitHub Pages serves this repo from `main`, so after changing `app/`, run `bb build-single` and commit the regenerated file to update the live demo.
+
+## What to look for
+
+In `app/public/cljs/kitchen_sink.cljs`, top to bottom:
+
+| Where | What it shows |
+|---|---|
+| `mode`, `single?`, `server?`, `asset` | How one file adapts to three deliveries (mode flag + asset indirection). |
+| `;; State + helpers`: `state`, `log!`, `on!`, `tile` | The single atom, the event log, a handler helper (`(on! :name tv)` = "store this field's value"), and a layout helper. |
+| `;; Server integration`: `api!`, `post-profile!`, `connect!`, `reload-cljs!`, `server-tile` | Request/response with EDN over `fetch`, server push over one websocket, and hot reload via `scittle.core.eval_string`. **This is the part to grow into a real app.** |
+| `;; Sections`: `actions`, `forms`, `feedback`, `layout`, `navigation`, `media`, `helpers` | One function per category, one tile per component. Copy the tile for the component you need: it shows the attributes to set and the event to handle. |
+| `view`, `render!`, `add-watch` (bottom) | The whole render loop: three lines. |
+
+Patterns worth noticing as you read:
+
+- `[:wa-select {:value … :on {:change …}} …]`: attributes and handlers live in one map; there is no adapter layer.
+- `(tile …)` is a **function call**, not `[tile …]`: Replicant renders data, it has no component syntax (that's Reagent).
+- `wa-otp-input` is deliberately **uncontrolled**; every other form control binds `:value` to state (see the comment in `forms`).
+- Methods on components are called on the DOM node: `(.next (el "stepper"))`, `(.create (el "toast") …)`.
+- `defonce` for `state` and the websocket is what makes hot reload keep its state.
+
+[docs/GUIDE.md](docs/GUIDE.md) has the event cheat sheet for every component and the gotchas we hit while testing.
+
+## Using it as a template
+
+1. **Pick a delivery mode.** Static (`static.html`) if you only need a UI; app (`index.html` + `server.clj`) if you need an API or push; single file if you need one artifact to hand around.
+2. **Keep the skeleton:** the HTML shell (pinned CDN links, icon registration), the mode/asset lines if you keep several modes, `state`, `log!`/`on!` if you like them, and the render loop at the bottom. In app mode also keep `api!`, `connect!`, `reload-cljs!` and `server.clj`.
+3. **Delete the demo:** the seven section functions, `categories`, `tree-data`, `images`, `markdown-src`, the demo images, `include.html` and `page-demo.html`, and the profile routes in `server.clj`.
+4. **Add your views** as plain functions over `state`, copying the tiles of the components you use from the kitchen sink.
+5. **Add server routes** to `handler` in `server.clj` and call them with `api!`.
+6. **Keep the versions pinned** (Web Awesome, Scittle, Font Awesome in the HTML) and bump them deliberately, together; re-run the tests when you do.
 
 ## Quick start
 
@@ -39,7 +114,7 @@ cd app/public && python3 -m http.server 8092    # http://localhost:8092/static.h
 
 Requires [babashka](https://babashka.org). The browser loads Web Awesome, Scittle and Font Awesome icons from pinned jsdelivr URLs; no npm install. A page must be served over HTTP (`file://` won't load the ES modules).
 
-## How the app version extends the page
+## The app server in detail
 
 `app/public/index.html` is a thin shell (CDN links, styles, `<div id="app">`) that loads the UI with
 `<script type="application/x-scittle" src="cljs/kitchen_sink.cljs">`. `app/server.clj` (http-kit, built into babashka) adds:
