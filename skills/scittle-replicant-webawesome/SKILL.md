@@ -101,7 +101,15 @@ For any other component, read `dist-cdn/custom-elements.json` or `dist-cdn/skill
 - **Aliases:** `(replicant.alias/register! :ui/stat (fn [attrs children] [:div ...]))`, then use `[:ui/stat {:label "x"} 1]` anywhere. Alias keywords must be namespaced. Or pass `{:aliases {...}}` to `d/render`.
 - **String rendering:** `(replicant.string/render hiccup)` returns HTML; handlers and hooks are dropped, aliases expand. Keep views interop-free in a `.cljc` file and the same functions render in the browser and on a bb server (bb needs `no.cjohansen/replicant` in its `:deps`, which requires Java once to resolve).
 
-## 5. Talking to a server
+## 5. App shell patterns (verified in the reference repo)
+
+- **Validation:** Web Awesome form controls take `:custom-error "message"` (`nil` = valid). Compute `{field message}` with a pure function of state and put each message on its field; the browser blocks submit and fires `wa-invalid` on the control (it bubbles, so one listener on the form sees them all). Keep `:required`, `:type "email"`, `:min`/`:max` too. Run the same function on the server.
+- **Theming:** classes on `<html>`: `wa-theme-default|awesome|shoelace`, `wa-palette-…`, `wa-brand-blue|…`, `wa-dark`/`wa-light`. Only the default theme/palette ship in `webawesome.css`; add `<link>`s to `styles/themes/<name>.css` / `styles/color/palettes/<name>.css` (same `dist-cdn/` base) when picked. Dark mode doesn't follow the OS by itself: read `(js/window.matchMedia "(prefers-color-scheme: dark)")`. Keep the choice in state; set the classes in `render!`. Use theme variables (`var(--wa-color-…)`) in your own CSS so it follows dark mode.
+- **Routing:** plain `href="#/page"` links + one `hashchange` listener (in a `defonce`) that stores the parsed route in state.
+- **Unit tests without a browser:** put pure logic (reducer, validation, routing) in a dependency-free `.cljc`, load it in the page with an extra `<script type="application/x-scittle" src="logic.cljc">` before the main file, and test it with `bb` (`load-file` + `clojure.test`). Use `clojure.string` functions, not `.replace` (JS and JVM differ).
+- **REPL into the page:** bb with `io.github.babashka/sci.nrepl` in `:deps`: `(sci.nrepl.browser-server/start! {:nrepl-port 1339 :websocket-port 1340})`; page: `window.SCITTLE_NREPL_WEBSOCKET_PORT = 1340` then load `scittle.nrepl.js` (connects once at load). Editor → nREPL on 1339.
+
+## 6. Talking to a server
 
 ```clojure
 (require '[clojure.edn :as edn])
@@ -114,16 +122,16 @@ For any other component, read `dist-cdn/custom-elements.json` or `dist-cdn/skill
 
 Server push: one `js/WebSocket`, EDN messages dispatched on `:op`; keep the socket in a `defonce` so re-evaluation doesn't open a second one. A babashka/http-kit server with an EDN API, websocket and hot reload is in the reference repo (`app/server.clj`).
 
-## 6. Setup traps
+## 7. Setup traps
 
 - Use Web Awesome's **`dist-cdn`** build. `dist` has bare imports (`lit`, …) that need a bundler; symptom: components never upgrade.
 - Icons default to Font Awesome's kit CDN; register a library (template does). `wa-number-input` asks that library for `plus`/`minus`, so a trimmed self-hosted icon set must include them.
 - `size` values are `"s" | "m" | "l"` (`"small"` logs a deprecation warning).
 - No Pro components in the free tier (e.g. `wa-combobox`); some doc examples use them.
 - Experimental in 3.15.0: carousel, code-highlighter, counter, lightbox, markdown, number-ticker, tag-input.
-- Strict-CSP hosts that block external stylesheets: self-host and flatten `webawesome.css` (it `@import`s four files).
+- CSP (measured): Scittle needs no `'unsafe-eval'`; Web Awesome needs `style-src 'unsafe-inline'` and `connect-src data:` (system icons). Hosts that block external stylesheets: self-host and flatten `webawesome.css` (it `@import`s four files).
 
-## 7. Verify before you say it works
+## 8. Verify before you say it works
 
 Open the page in a real browser (Playwright/Chrome) and check:
 
@@ -133,4 +141,4 @@ document.querySelectorAll(':not(:defined)').length === 0   // every <wa-*> upgra
 
 - No console errors.
 - Click through each interactive control and confirm state changed (while developing, expose it with `(set! (.-__state js/window) #(clj->js @state))`, or render a state panel as the reference repo does).
-- With Playwright: selectors pierce shadow DOM (`#name input`, `[part~=track]`); find part names with `[...el.shadowRoot.querySelectorAll('[part]')].map(x => x.getAttribute('part'))`; scroll into view before coordinate clicks; select by text, not `[value=…]`.
+- With Playwright: click a switch via `#id [part~=control]` (the host's center can miss when it has a hint); selectors pierce shadow DOM (`#name input`, `[part~=track]`); find part names with `[...el.shadowRoot.querySelectorAll('[part]')].map(x => x.getAttribute('part'))`; scroll into view before coordinate clicks; select by text, not `[value=…]`.

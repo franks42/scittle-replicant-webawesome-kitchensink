@@ -82,6 +82,20 @@
       "reset keeps the dark-mode choice"))
 
 ;; ---------------------------------------------------------------------------
+;; Validation: one function, used by the browser and by the server's 400
+
+(deftest validate-profile
+  (is (= {} (logic/validate-profile {:name "Ada" :email "" :qty 3})))
+  (is (= {:name "Name is required"} (logic/validate-profile {:name "  " :qty "2"})))
+  (is (= {:email "Not a valid email address"} (logic/validate-profile {:name "Ada" :email "ada@"})))
+  (testing "cross-field rule: quantities over 5 need an email (form values are strings)"
+    (is (= {:email "Email is required for quantities over 5"} (logic/validate-profile {:name "Ada" :qty "6"})))
+    (is (= {} (logic/validate-profile {:name "Ada" :qty "6" :email "ada@example.com"})))
+    (is (= {} (logic/validate-profile {:name "Ada" :qty 5}))))
+  (is (= {:qty "Quantity must be between 0 and 10"} (logic/validate-profile {:name "Ada" :qty "11" :email "a@b.co"})))
+  (is (= {} (logic/validate-profile {:name "Ada" :qty "not a number"})) "non-numbers are the browser's job"))
+
+;; ---------------------------------------------------------------------------
 ;; Views: data in, hiccup out. No renderer needed to check structure.
 
 (defn find-all

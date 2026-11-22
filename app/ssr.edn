@@ -1,5 +1,0 @@
-;; Config for `bb dev-ssr`: the app server plus Replicant on the classpath, so
-;; it can render the shared views (public/cljs/views.cljc) to HTML strings.
-;; babashka resolves :deps with the Clojure CLI tooling, which needs Java the
-;; first time; after that the classpath is cached. Plain `bb dev` needs none of this.
-{:deps {no.cjohansen/replicant {:mvn/version "2026.06.2"}}}   ; same version Scittle 0.8.33 bundles

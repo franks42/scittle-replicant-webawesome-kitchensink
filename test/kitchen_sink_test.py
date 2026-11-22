@@ -1,4 +1,4 @@
-"""Interaction suite: 81 checks across the Web Awesome components, driven like a user would.
+"""Interaction suite: 98 checks across the Web Awesome components, driven like a user would.
 
 Usage (a server running, see README):
     python3 test/kitchen_sink_test.py http://localhost:8090/index.html     # app version (bb dev)
@@ -27,7 +27,8 @@ async def main():
         icon_reqs = set()
         ctx.on("request", lambda r: "/svgs/solid/" in r.url and icon_reqs.add(r.url.split("/svgs/solid/")[1]))
         pg.on("pageerror", lambda e: errs.append("PAGEERR " + str(e)[:300]))
-        pg.on("console", lambda m: m.type in ("error", "warning") and errs.append(m.type + ": " + m.text[:300]))
+        # (app mode: the validation-off submit's 400 is expected and logged by the browser as a failed resource)
+        pg.on("console", lambda m: m.type in ("error", "warning") and "status of 400" not in m.text and errs.append(m.type + ": " + m.text[:300]))
         await pg.goto(URL)
         await pg.wait_for_function("window.__ready===true", timeout=60000)
         await pg.wait_for_timeout(3000)
@@ -46,9 +47,11 @@ async def main():
             results.append((name, ok, detail))
 
         async def click(sel): await pg.locator(sel).first.click(); await W(350)
+        MODE = await ev("window.KS_MODE || 'app'")
+        html_cls = lambda: ev("[...document.documentElement.classList]")
 
         # ---------------------------------------------------------------- actions
-        await step("wa-button click", lambda: click("wa-button[variant=brand]:has-text('Brand')"),
+        await step("wa-button click", lambda: click("section:not(#theming-tile) wa-button[variant=brand]:has-text('Brand')"),
                    lambda: _r(log(), lambda l: ("wa-button · click → brand" in l, "log")))
         await step("wa-button-group select", lambda: click("#align-right"),
                    lambda: _r(S(), lambda s: (s["align"] == "right", s["align"])))
@@ -88,6 +91,45 @@ async def main():
         await step("programmatic clear shows in wa-input", lambda: click("#clear-name"),
                    lambda: _r(ev("document.querySelector('#f-name').shadowRoot.querySelector('input').value"),
                               lambda v: (v == "", repr(v))))
+        # ---------------------------------------------------------------- validation
+        # The name is empty now. validate-profile (logic.cljc) puts its messages on
+        # the fields as custom-error, so the browser blocks the submit.
+        async def blocked():
+            before = await ev("document.getElementById('form-result')?.innerText||''")
+            await click("#submit-btn"); return before
+        async def blocked_check():
+            v = await ev("""[document.getElementById('form-result')?.innerText||'',
+                             document.getElementById('f-name').matches(':state(user-invalid)'),
+                             document.getElementById('log').innerText.includes('wa-invalid · name → Name is required')]""")
+            return (v[1] and v[2] and '"name" "Grace Hopper"' in v[0], v[1:])
+        await step("validation blocks submit (required + custom-error)", blocked, blocked_check)
+        async def qty7():
+            await typ("#f-name input", "Grace Hopper")
+            await pg.locator("#f-qty input").first.click(); await pg.keyboard.press("Control+a"); await pg.keyboard.type("7"); await W(300)
+        await step("cross-field rule: qty over 5 needs an email", qty7,
+                   lambda: _r(ev("[document.getElementById('f-email').validationMessage, document.getElementById('f-email').validity.customError]"),
+                              lambda v: (v == ["Email is required for quantities over 5", True], v)))
+        await step("wa-invalid reports the shared message", lambda: click("#submit-btn"),
+                   lambda: _r(log(), lambda l: ("wa-invalid · email → Email is required for quantities over 5" in l, "log")))
+        async def novalidate():
+            await click("#f-validate [part~=control]"); await click("#submit-btn"); await W(800)
+        async def novalidate_check():
+            v = await ev("""[document.getElementById('profile-form').noValidate,
+                             document.getElementById('server-errors')?.innerText||'',
+                             document.getElementById('form-result')?.innerText||'']""")
+            if MODE == "app":   # the server runs the same rules and answers 400
+                return (v[0] and "Email is required for quantities over 5" in v[1], v)
+            return (v[0] and '"qty" "7"' in v[2], v)   # no server: the form just submits
+        await step("browser validation off: " + ("server's 400 shown" if MODE == "app" else "form submits"), novalidate, novalidate_check)
+        async def fix():
+            await typ("#f-email input", "grace@example.com")
+            await click("#f-validate [part~=control]"); await click("#submit-btn"); await W(800)
+        async def fix_check():
+            v = await ev("""[document.getElementById('f-email').checkValidity(), document.getElementById('profile-form').noValidate,
+                             !!document.getElementById('server-errors'), document.getElementById('form-result')?.innerText||'']""")
+            return (v[0] and not v[1] and not v[2] and "grace@example.com" in v[3], v)
+        await step("valid again: submits, server errors cleared", fix, fix_check)
+
         async def sel():
             await click("#f-coffee"); await click("#f-coffee wa-option[value=espresso]")
         await step("wa-select single", sel, lambda: _r(S(), lambda s: (s["coffee"] == "espresso", s["coffee"])))
@@ -248,6 +290,38 @@ async def main():
             return n0
         await step("wa-random-content randomize", rnd, lambda: _r(log(), lambda l: (l.count("wa-content-change") >= 2, "log")))
 
+        # ---------------------------------------------------------------- theming
+        await pg.locator("#theme-select").scroll_into_view_if_needed()
+        brand_bg = "getComputedStyle(document.querySelector('#theming-tile wa-button[variant=brand]').shadowRoot.querySelector('[part~=base]')).backgroundColor"
+        async def pick(id, value):
+            await click(f"#{id}"); await click(f"#{id} wa-option[value={value}]"); await W(600)
+        font0 = await ev("getComputedStyle(document.body).fontFamily")
+        await step("theme: awesome (classes + lazy CSS)", lambda: pick("theme-select", "awesome"),
+                   lambda: _r(ev("""[[...document.documentElement.classList], !!document.getElementById('css-styles-themes-awesome-css')?.sheet,
+                                     getComputedStyle(document.body).fontFamily]"""),
+                              lambda v: ("wa-theme-awesome" in v[0] and "wa-theme-default" not in v[0] and v[1] and v[2] != font0, v)))
+        b0 = await ev(brand_bg)
+        await step("brand color: red", lambda: pick("brand-select", "red"),
+                   lambda: _r(ev(f"[[...document.documentElement.classList], {brand_bg}]"),
+                              lambda v: ("wa-brand-red" in v[0] and v[1] != b0, v)))
+        await step("palette: bright (lazy CSS)", lambda: pick("palette-select", "bright"),
+                   lambda: _r(ev("[[...document.documentElement.classList], !!document.getElementById('css-styles-color-palettes-bright-css')]"),
+                              lambda v: ("wa-palette-bright" in v[0] and v[1], v)))
+        lum = r"""(()=>{const m=getComputedStyle(document.querySelector('.tile')).backgroundColor.match(/[\d.]+/g).map(Number);
+                       return Math.round(0.2126*m[0]+0.7152*m[1]+0.0722*m[2])})()"""
+        light = await ev(lum)
+        await step("dark mode switch", lambda: click("#dark-switch [part~=control]"),
+                   lambda: _r(ev(f"[[...document.documentElement.classList], {lum}]"),
+                              lambda v: ("wa-dark" in v[0] and "wa-light" not in v[0] and v[1] < 80 < light, f"{v} (light was {light})")))
+        await step("theme state shown as <html> classes", lambda: W(10),
+                   lambda: _r(ev("[document.getElementById('html-classes').textContent, [...document.documentElement.classList].join(' ')]"),
+                              lambda v: (v[0] == v[1], v)))
+        await step("theme reset keeps dark", lambda: click("#theme-reset"),
+                   lambda: _r(html_cls(), lambda c: (c == ["wa-theme-default", "wa-dark"], c)))
+        await click("#dark-switch [part~=control]")
+        await step("back to light", lambda: W(10),
+                   lambda: _r(html_cls(), lambda c: (c == ["wa-theme-default", "wa-light"], c)))
+
         # ---------------------------------------------------------------- state panel
         await step("state panel: keys sorted", lambda: W(10),
                    lambda: _r(ev("[...document.querySelectorAll('#state [data-key]')].map(e=>e.dataset.key)"),
@@ -365,6 +439,30 @@ async def main():
             if before:
                 raise RuntimeError(":ticker already visible before the change; viewport too tall to exercise scrolling")
         await step("state panel scrolls changed row into view", late_step, late_check)
+
+        # ---------------------------------------------------------------- routing
+        cats = "[...document.querySelectorAll('.cat h2')].map(e=>e.textContent)"
+        await ev("window.scrollTo(0,0)")
+        await step("route: nav link to Forms", lambda: click("#route-nav wa-button[data-route=forms]"),
+                   lambda: _r(ev(f"[location.hash, window.__state().route, {cats}, document.getElementById('log').innerText.split('\\n')[0]]"),
+                              lambda v: (v[0] == "#/forms" and v[1] == "forms" and v[2] == ["Forms"] and "router · hashchange → #/forms" in v[3], v)))
+        async def back(): await pg.go_back(); await W(500)
+        await step("route: browser back", back,
+                   lambda: _r(ev(f"[location.hash, window.__state().route, {cats}.length]"),
+                              lambda v: (v[0] == "" and v[1] == "all" and v[2] == 9, v)))
+        async def bad(): await pg.locator("#route-missing").scroll_into_view_if_needed(); await click("#route-missing")
+        await step("route: unknown page", bad,
+                   lambda: _r(ev("[window.__state().route, !!document.getElementById('route-not-found')]"),
+                              lambda v: (v == ["no-such-page", True], v)))
+        deep = await ctx.new_page()
+        await deep.goto(URL.split("#")[0] + "#/media"); await deep.wait_for_function("window.__ready===true", timeout=60000)
+        await step("route: deep link opens on that page", lambda: W(10),
+                   lambda: _r(deep.evaluate(f"[window.__state().route, {cats}]"),
+                              lambda v: (v == ["media", ["Media"]], v)))
+        await deep.close()
+        await ev("location.hash = '#/'"); await W(400)
+        await step("route: #/ shows everything", lambda: W(10),
+                   lambda: _r(ev(f"[window.__state().route, {cats}.length]"), lambda v: (v == ["all", 9], v)))
 
         if os.environ.get("KS_SCREENSHOT"): await pg.screenshot(path=os.environ["KS_SCREENSHOT"], full_page=True)
         passed = sum(1 for r in results if r[1])

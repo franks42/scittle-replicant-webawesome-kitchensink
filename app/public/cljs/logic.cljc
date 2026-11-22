@@ -1,5 +1,6 @@
 ;; Pure application logic: no DOM, no interop, no dependencies.
-;; Loaded by the browser (Scittle, before kitchen_sink.cljs) and by the
+;; Loaded unchanged by the browser (Scittle, before kitchen_sink.cljs), by the
+;; bb server (app/server.clj validates with validate-profile) and by the
 ;; browser-free unit tests (`bb test`, test/unit_test.clj).
 (ns kitchen-sink.logic
   (:require [clojure.string :as str]))
@@ -60,3 +61,32 @@
     (and palette (not= palette "theme")) (conj (str "wa-palette-" palette))
     (and brand (not= brand "theme"))     (conj (str "wa-brand-" brand))
     true                                 (conj (if dark? "wa-dark" "wa-light"))))
+
+;; ---------------------------------------------------------------------------
+;; Validation shared by the browser and the server. The browser puts these
+;; messages on the fields (Web Awesome's custom-error attribute), so the form
+;; won't submit; the server runs the same function and answers 400 with them,
+;; for clients that skip the browser checks.
+(def email-re #"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+(defn ->int [x]
+  (cond (number? x) x
+        (and (string? x) (re-matches #"\s*-?\d+\s*" x)) (parse-long (str/trim x))
+        :else nil))
+
+(defn validate-profile
+  "{field message} for an invalid profile, {} for a valid one."
+  [{:keys [name email qty]}]
+  (let [qty (->int qty)]
+    (cond-> {}
+      (str/blank? name)
+      (assoc :name "Name is required")
+
+      (and (not (str/blank? email)) (not (re-matches email-re (str/trim email))))
+      (assoc :email "Not a valid email address")
+
+      (and (str/blank? email) qty (> qty 5))
+      (assoc :email "Email is required for quantities over 5")
+
+      (and (some? qty) (or (neg? qty) (> qty 10)))
+      (assoc :qty "Quantity must be between 0 and 10"))))

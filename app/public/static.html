@@ -29,6 +29,7 @@
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1rem; }
     .tile { background: var(--wa-color-surface-default); border: 1px solid var(--wa-color-surface-border); border-radius: 12px; padding: 1rem; min-width: 0; }
     .tile.wide { grid-column: 1 / -1; }
+    .route-nav { display: flex; flex-wrap: wrap; gap: .4rem; }
     .tile h3 { margin: 0 0 .75rem; font: 600 13px/1.3 var(--wa-font-family-code); color: var(--wa-color-text-quiet); }
     .tile h3 .exp { color: var(--wa-color-warning-on-quiet); font-weight: 400; }
     .row { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
@@ -42,7 +43,7 @@
     .log { font: 12px/1.5 var(--wa-font-family-code); background: #111; color: #9ef09e; border-radius: 10px; padding: .75rem; white-space: pre-wrap; }
     .state { font: 11px/1.45 var(--wa-font-family-code); background: var(--wa-color-surface-default); border: 1px solid var(--wa-color-surface-border); border-radius: 10px; padding: .75rem; white-space: pre-wrap; word-break: break-word; }
     .state .kv { padding: 1px 4px; border-radius: 4px; transition: background-color .6s ease-out; }
-    .state .kv.changed { background: #fff3a3; transition: none; }
+    .state .kv.changed { background: var(--wa-color-warning-fill-quiet); transition: none; }   /* a theme color, so it works in dark mode */
     .state .k { color: var(--wa-color-brand-on-quiet); font-weight: 600; }
     /* Replicant features tiles */
     .ks-stats { display: flex; gap: .6rem; flex-wrap: wrap; }

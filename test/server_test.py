@@ -6,7 +6,7 @@ server on app/public for static.html: `bb serve-static`):
 Optional env: KS_PROXY=http://host:port  (route CDN traffic through a proxy)
 Requires: pip install playwright && playwright install chromium (or set KS_CHROME to a Chrome binary)
 """
-import asyncio, os, pathlib, re, sys
+import asyncio, os, pathlib, re, socket, sys
 from playwright.async_api import async_playwright
 
 APP = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8090/"
@@ -18,6 +18,40 @@ results = []
 def check(name, ok, detail=""):
     results.append((name, bool(ok), detail))
 
+# ---- a minimal nREPL client (bencode over TCP), enough to eval one form
+def benc(x):
+    if isinstance(x, int): return b"i%de" % x
+    if isinstance(x, str): x = x.encode()
+    if isinstance(x, bytes): return b"%d:%s" % (len(x), x)
+    if isinstance(x, list): return b"l" + b"".join(map(benc, x)) + b"e"
+    if isinstance(x, dict): return b"d" + b"".join(benc(k) + benc(v) for k, v in sorted(x.items())) + b"e"
+
+def bdec(buf, i=0):
+    c = buf[i:i+1]
+    if c == b"i": j = buf.index(b"e", i); return int(buf[i+1:j]), j + 1
+    if c in (b"l", b"d"):
+        i += 1; items = []
+        while buf[i:i+1] != b"e": v, i = bdec(buf, i); items.append(v)
+        return (items if c == b"l" else dict(zip(items[::2], items[1::2]))), i + 1
+    j = buf.index(b":", i); n = int(buf[i:j]); return buf[j+1:j+1+n].decode(), j + 1 + n
+
+def nrepl_eval(port, code, timeout=10):
+    """Send one eval, collect responses until status contains done."""
+    with socket.create_connection(("localhost", port), timeout=timeout) as sk:
+        sk.sendall(benc({"op": "eval", "code": code, "id": "t1"}))
+        buf, out = b"", []
+        while True:
+            chunk = sk.recv(65536)
+            if not chunk: break
+            buf += chunk
+            try:
+                while buf:
+                    msg, n = bdec(buf); buf = buf[n:]; out.append(msg)
+                    if "done" in msg.get("status", []): return out
+            except (ValueError, IndexError):
+                pass   # incomplete message: read more
+        return out
+
 async def main():
     async with async_playwright() as p:
         launch = {"args": ["--no-sandbox"]}
@@ -28,7 +62,8 @@ async def main():
         errs = []
         pg = await ctx.new_page()
         pg.on("pageerror", lambda e: errs.append(str(e)[:200]))
-        pg.on("console", lambda m: m.type in ("error", "warning") and errs.append(m.text[:200]))
+        # the 400 from the validation-off submit is expected; the browser logs it as a failed resource
+        pg.on("console", lambda m: m.type in ("error", "warning") and "status of 400" not in m.text and errs.append(m.text[:200]))
         await pg.goto(APP); await pg.wait_for_function("window.__ready===true", timeout=60000)
         ev = pg.evaluate
         txt = lambda sel: ev(f"document.querySelector('{sel}')?.textContent || ''")
@@ -37,6 +72,17 @@ async def main():
         check("websocket connects", True)
         await pg.wait_for_function("!document.querySelector('#server-time').textContent.includes('—')", timeout=8000)
         check("server pushes :tick", True, await txt("#server-time"))
+
+        # browser validation off: the form posts anyway and shows the server's 400
+        await pg.locator("#clear-name").click()
+        await pg.locator("#f-validate [part~=control]").click()
+        await pg.locator("#submit-btn").click()
+        await pg.wait_for_selector("#server-errors", timeout=5000)
+        check("form shows the server's 400 (browser validation off)", "Name is required" in await txt("#server-errors"),
+              await txt("#server-errors"))
+        await pg.locator("#f-validate [part~=control]").click()
+        check("validation switch back on", await ev("!document.getElementById('profile-form').noValidate"))
+        check("bb dev: nREPL tile says it's off", await ev("!!document.getElementById('nrepl-off')"))
 
         # POST via the real form
         loc = pg.locator("#f-name input").first; await loc.click(); await pg.keyboard.press("Control+a")
@@ -49,20 +95,36 @@ async def main():
         await pg.wait_for_selector("#profiles-table", timeout=5000)
         rows = await ev("document.querySelectorAll('#profiles-table tr').length - 1")
         check("GET /api/profiles renders table", rows >= 1, f"{rows} rows")
-        r = await pg.request.post(APP.rstrip("/") + "/api/profile", data="{:name \"\"}", headers={"Content-Type": "application/edn"})
-        check("API validates (blank name -> 400)", r.status == 400, f"HTTP {r.status} {await r.text()}")
+        check("a good save clears the server errors", not await ev("!!document.getElementById('server-errors')"))
+        r = await pg.request.post(APP.rstrip("/") + "/api/profile", data="{:name \"\" :qty 7}", headers={"Content-Type": "application/edn"})
+        body = await r.text()
+        check("API validates with the shared rules (400 + field messages)",
+              r.status == 400 and "Name is required" in body and "Email is required for quantities over 5" in body, f"HTTP {r.status} {body}")
 
         # server-side rendering route: explained 501 under plain `bb dev`
         r = await pg.request.get(APP.rstrip("/") + "/ssr/profiles")
-        check("SSR route explains how to enable it under bb dev", r.status == 501 and "bb dev-ssr" in await r.text(), f"HTTP {r.status}")
-        ssr = os.environ.get("KS_SSR_URL")   # e.g. http://localhost:8093 (a `bb dev-ssr` server)
+        check("SSR route explains how to enable it under bb dev", r.status == 501 and "bb dev-full" in await r.text(), f"HTTP {r.status}")
+        ssr = os.environ.get("KS_SSR_URL")   # e.g. http://localhost:8093 (a `bb dev-full` server)
         if ssr:
             api = await pg.request.get(ssr + "/api/profiles"); n = (await api.text()).count(":id ")
             r = await pg.request.get(ssr + "/ssr/profiles"); html = await r.text()
             rows = html.count("<tr>") - 1
-            check("SSR (bb dev-ssr) renders the shared profiles-table", r.status == 200 and 'id="profiles-table"' in html and rows == n,
+            check("SSR (bb dev-full) renders the shared profiles-table", r.status == 200 and 'id="profiles-table"' in html and rows == n,
                   f"HTTP {r.status}, {rows} rows vs {n} profiles")
             check("SSR expands aliases and drops replicant attributes", 'class="ks-stat"' in html and "replicant/" not in html and ":ks/" not in html)
+
+            # nREPL into the running page: editor -> :1339 -> websocket :1340 -> Scittle
+            rp = await ctx.new_page(); await rp.goto(ssr + "/"); await rp.wait_for_function("window.__ready===true", timeout=60000)
+            await rp.wait_for_function("document.querySelector('#nrepl-status')?.textContent.includes('open')", timeout=15000)
+            check("bb dev-full: page connects to the nREPL websocket", True, await rp.evaluate("document.querySelector('#nrepl-status').textContent"))
+            port = int(os.environ.get("KS_NREPL_PORT", "1339"))
+            out = await asyncio.to_thread(nrepl_eval, port, '(swap! kitchen-sink/state assoc :name "From nREPL") (:name @kitchen-sink/state)')
+            values = [m["value"] for m in out if "value" in m]
+            check("nREPL eval returns a value from the page", values and values[-1] == '"From nREPL"', str(out)[:200])
+            await rp.wait_for_function("window.__state().name === 'From nREPL'", timeout=5000)
+            check("nREPL eval changed the page's state and UI",
+                  await rp.evaluate("document.querySelector('#f-name').value") == "From nREPL")
+            await rp.close()
 
         # second client is counted by the server
         pg2 = await ctx.new_page(); await pg2.goto(APP); await pg2.wait_for_function("window.__ready===true", timeout=60000)

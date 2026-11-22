@@ -1,0 +1,5 @@
+;; Optional dev dependencies for `bb dev-full` (resolving them needs Java once):
+;;   Replicant  - server-side rendering of the shared views at /ssr/profiles
+;;   sci.nrepl  - nREPL into the running page (editor -> :1339 -> ws :1340 -> Scittle)
+{:deps {no.cjohansen/replicant {:mvn/version "2026.06.2"}
+        io.github.babashka/sci.nrepl {:mvn/version "0.0.2"}}}
