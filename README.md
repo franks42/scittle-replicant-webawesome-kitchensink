@@ -188,8 +188,22 @@ Full details and an event cheat sheet are in [docs/GUIDE.md](docs/GUIDE.md). The
 
 ## Credits
 
-Components: Web Awesome (MIT). Icons: Font Awesome Free. Images in `app/public/img/` were generated for this demo.
+This template is just glue; the heavy lifting is done by these projects:
+
+| Project | What it does here | Author | License |
+|---|---|---|---|
+| [Scittle](https://github.com/babashka/scittle) | Runs the ClojureScript in the browser, no build step | Michiel Borkent (borkdude) | EPL-1.0 |
+| [SCI](https://github.com/babashka/sci) | The Small Clojure Interpreter underneath Scittle (and babashka) | Michiel Borkent | EPL-1.0 |
+| [Replicant](https://github.com/cjohansen/replicant) | Renders hiccup to the DOM; attaches the `:on` handlers | Christian Johansen | MIT |
+| [Web Awesome](https://webawesome.com) | The 78 components (formerly Shoelace) | Cory LaViska and the Web Awesome / Font Awesome team | MIT |
+| [Lit](https://lit.dev) | Inside every Web Awesome component (never touched directly) | The Lit project / Google | BSD-3-Clause |
+| [babashka](https://babashka.org) | Runs the app server, the build script and the `bb` tasks | Michiel Borkent | EPL-1.0 |
+| [http-kit](https://github.com/http-kit/http-kit) | HTTP + websocket server (bundled in babashka) | http-kit contributors | Apache-2.0 |
+| [Font Awesome Free](https://fontawesome.com) | Icons, via jsdelivr | Fonticons, Inc. | CC BY 4.0 (icons), MIT (code) |
+| [jsDelivr](https://www.jsdelivr.com) | Serves all the browser libraries | | |
+
+Images in `app/public/img/` were generated for this demo.
 
 ## License
 
-This project: [EPL-2.0](LICENSE). Web Awesome is MIT; Font Awesome Free icons are CC BY 4.0 (icons) / MIT (code); both are loaded from jsdelivr, not vendored.
+This project: [EPL-2.0](LICENSE). None of the libraries above are vendored into the repo: the browser loads them from pinned jsDelivr URLs, and babashka provides the server side. Their licenses are listed in Credits.
