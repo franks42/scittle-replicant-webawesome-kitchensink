@@ -9,6 +9,7 @@
 ;;   GET  /api/profiles   -> EDN list of stored profiles
 ;;   GET  /ws             -> websocket: {:op :hello}, {:op :tick} every 5 s,
 ;;                           {:op :reload :file "cljs/..."} when a .cljs/.cljc file changes
+;;   GET  /_nrepl         -> websocket for the browser side of the nREPL (`bb dev-full`)
 ;;   GET  /ssr/profiles   -> server-side rendering: the shared views in
 ;;                           public/cljs/views.cljc rendered to HTML with
 ;;                           replicant.string (only under `bb dev-full`, see below)
@@ -17,12 +18,15 @@
 ;;      bb dev-full  same server plus two dev dependencies (app/dev-full.edn):
 ;;                   Replicant, for server-side rendering at /ssr/profiles, and
 ;;                   sci.nrepl, for an nREPL into the running page (editor ->
-;;                   localhost:1339 -> websocket :1340 -> Scittle in the browser).
+;;                   localhost:1339 -> this server's /_nrepl websocket -> Scittle).
 ;;                   Resolving them needs a Java runtime the first time
 ;;                   (babashka's deps resolution); plain `bb dev` needs none.
 ;; Env: PORT (default 8090), HOST (default 127.0.0.1: this dev server has no auth,
 ;;      so it doesn't listen on your network unless you say HOST=0.0.0.0),
-;;      NREPL_PORT (1339), NREPL_WS_PORT (1340)
+;;      NREPL_PORT (1339, always localhost only)
+;;
+;; Requests are refused (403) when they carry another site's Origin, or, while
+;; bound to loopback, a Host that isn't localhost (DNS rebinding). See `guard`.
 (ns server
   (:require [babashka.fs :as fs]
             [clojure.edn :as edn]
@@ -35,7 +39,6 @@
 (def host (or (System/getenv "HOST") "127.0.0.1"))
 (def port (parse-long (or (System/getenv "PORT") "8090")))
 (def nrepl-port (parse-long (or (System/getenv "NREPL_PORT") "1339")))
-(def nrepl-ws-port (parse-long (or (System/getenv "NREPL_WS_PORT") "1340")))
 
 ;; Shared, dependency-free logic: the browser loads the same file.
 (def logic-file (fs/path public-dir "cljs" "logic.cljc"))
@@ -69,27 +72,68 @@
                   :headers {"Content-Type" "application/edn; charset=utf-8"}
                   :body (pr-str body)}))
 
+;; ---------------------------------------------------------------- request guard
+;; A dev server on localhost is still reachable from every web page you open:
+;; a page can open a websocket to ws://localhost:8090 or POST to it, and a
+;; DNS-rebinding page can even read from it. Two checks stop that:
+;;   - Origin: browsers send it on websocket handshakes, POSTs and cross-origin
+;;     fetches; if present it must be this server's own origin.
+;;   - Host: while bound to loopback, the Host header must be localhost /
+;;     127.0.0.1 / [::1]. A rebinding page has its own name in Host.
+;; With HOST set to something else you've opted into network access, and the
+;; Host check is skipped.
+(def loopback? (contains? #{"127.0.0.1" "localhost" "::1"} host))
+
+(defn same-origin? [req]
+  (let [{:strs [origin host]} (:headers req)]
+    (and origin host (= origin (str "http://" host)))))
+
+(defn guard
+  "nil if the request may proceed, else a 403 response."
+  [req]
+  (let [{:strs [origin host]} (:headers req)
+        host-name (some-> host (str/replace #":\d+$" ""))]
+    (when (or (and loopback? (not (contains? #{"localhost" "127.0.0.1" "[::1]"} host-name)))
+              (and origin (not (same-origin? req))))
+      {:status 403 :headers {"Content-Type" "text/plain"} :body "forbidden: foreign Origin or Host\n"})))
+
 ;; ---------------------------------------------------------------- SSR (optional)
 (def ssr-available?
   (try (require 'replicant.string) true
        (catch Exception _ false)))
 
 ;; ---------------------------------------------------------------- browser nREPL (optional)
-;; Under `bb dev-full` sci.nrepl is on the classpath: start its nREPL server
-;; (for the editor) and its websocket (for the page). The page asks
-;; /api/dev-info and, if :nrepl is there, loads scittle.nrepl.js, which connects
-;; to the websocket. One browser tab at a time; start the server before
-;; opening the page (the page does not reconnect).
+;; Under `bb dev-full` sci.nrepl is on the classpath. We use two of its parts:
+;;   - its nREPL server for the editor (it binds localhost only), and
+;;   - its send-response, to pass the page's answers back to the editor.
+;; The page side is served here, at /_nrepl on this server's own port, instead
+;; of sci.nrepl's own websocket server: that one listens on all interfaces and
+;; doesn't check Origin. Here it gets the 127.0.0.1 binding and `guard`, and
+;; must come from our own page (Origin required).
+;; The page asks /api/dev-info and, if :nrepl is there, sets
+;; SCITTLE_NREPL_WEBSOCKET_PORT to this port and loads scittle.nrepl.js, which
+;; connects to ws://<host>:<port>/_nrepl. One browser tab at a time (the newest
+;; wins); start the server before opening the page (the page does not reconnect).
 (def nrepl-available?
   (try (require 'sci.nrepl.browser-server) true
        (catch Exception _ false)))
 
 (defn start-nrepl! []
-  ((resolve 'sci.nrepl.browser-server/start!) {:nrepl-port nrepl-port :websocket-port nrepl-ws-port}))
+  ((resolve 'sci.nrepl.browser-server/start-nrepl-server!) {:port nrepl-port}))
+
+(defn nrepl-ws-handler [req]
+  (let [channel       @(resolve 'sci.nrepl.browser-server/nrepl-channel)   ; the atom the editor side sends to
+        send-response (resolve 'sci.nrepl.browser-server/send-response)]
+    (http/as-channel req
+      {:on-open    (fn [ch] (reset! channel ch))
+       :on-close   (fn [ch _] (compare-and-set! channel ch nil))
+       :on-receive (fn [_ msg]                                  ; the page's answer -> the editor
+                     (let [{:keys [id session] :as m} (edn/read-string msg)]
+                       (send-response {:id id :session session :response (dissoc m :id :session)})))})))
 
 (defn dev-info []
   (edn-response {:ssr? ssr-available?
-                 :nrepl (when nrepl-available? {:port nrepl-port :websocket-port nrepl-ws-port})}))
+                 :nrepl (when nrepl-available? {:port nrepl-port :websocket-port port})}))
 
 (defn ssr-profiles []
   (if-not ssr-available?
@@ -158,15 +202,20 @@
 
 ;; ---------------------------------------------------------------- routing
 (defn handler [{:keys [request-method uri] :as req}]
-  (case [request-method uri]
+  (or
+   (guard req)
+   (case [request-method uri]
     [:get "/ws"]            (ws-handler req)
+    [:get "/_nrepl"]        (if (and nrepl-available? (:websocket? req) (same-origin? req))
+                              (nrepl-ws-handler req)
+                              {:status 403 :body "nREPL websocket: off, or not from this page\n"})
     [:post "/api/profile"]  (save-profile req)
     [:get "/api/profiles"]  (edn-response {:profiles @profiles})
     [:get "/ssr/profiles"]  (ssr-profiles)
     [:get "/api/dev-info"]  (dev-info)
     (if (= request-method :get)
       (static uri)
-      {:status 405 :body "method not allowed"})))
+      {:status 405 :body "method not allowed"}))))
 
 ;; ---------------------------------------------------------------- background
 (defn ticker []
@@ -196,7 +245,8 @@
   (when nrepl-available? (start-nrepl!))
   (println (str "kitchen sink: http://localhost:" port
                 (if ssr-available? "  (SSR: /ssr/profiles)" "  (SSR and browser nREPL off: use bb dev-full)")
-                (when nrepl-available? (str "  (nREPL for your editor: localhost:" nrepl-port ")"))))
+                (when nrepl-available? (str "  (nREPL for your editor: localhost:" nrepl-port ")"))
+                (when-not loopback? (str "  WARNING: listening on " host ", reachable from your network"))))
   @(promise))
 
 (when (= *file* (System/getProperty "babashka.file")) (-main))

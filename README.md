@@ -111,7 +111,7 @@ The pieces a real app adds around the components. The first four are tiles in th
 
 **Routing.** The URL hash is the source of truth: the bar above the categories is plain links (`#/forms`), the browser updates location and history, and one `hashchange` listener puts the parsed route into state (`:route`); the view shows the matching category. Back, forward, reload and shared deep links (`…/static.html#/media`) work, unknown routes get a "no page" callout, and it needs no server support, so it works on GitHub Pages, in the single file and from `file://`-free static hosts alike. The History API (`/forms`) would give cleaner URLs but needs a server that answers every path with the page.
 
-**A REPL into the running page.** Under `bb dev-full` the server also starts [sci.nrepl](https://github.com/babashka/sci.nrepl)'s browser nREPL: an nREPL server on `localhost:1339` for your editor and a websocket on `:1340` for the page. The page asks `GET /api/dev-info`, sees the nREPL, and loads `scittle.nrepl.js`, which connects to the websocket; the REPL tile shows the connection. Connect any nREPL client (Calva, CIDER, Conjure, …) to port 1339 and evaluate in `kitchen_sink.cljs`, e.g. `(swap! kitchen-sink/state assoc :name "REPL")`; the page updates. Limits: one page at a time, start the server before opening the page (the page doesn't reconnect), and see *Supply chain and security* for what the websocket exposes.
+**A REPL into the running page.** Under `bb dev-full` the server also starts [sci.nrepl](https://github.com/babashka/sci.nrepl)'s browser nREPL: an nREPL server on `localhost:1339` for your editor, while the page side is a websocket the app server itself serves at `/_nrepl` (same port, same origin, guarded; see *Supply chain and security*). The page asks `GET /api/dev-info`, sees the nREPL, and loads `scittle.nrepl.js`, which connects to `/_nrepl`; the REPL tile shows the connection. Connect any nREPL client (Calva, CIDER, Conjure, …) to port 1339 and evaluate in `kitchen_sink.cljs`, e.g. `(swap! kitchen-sink/state assoc :name "REPL")`; the page updates. Limits: one page at a time, start the server before opening the page (the page doesn't reconnect).
 
 **Unit tests without a browser.** The reducer, routing, theming and validation logic live in `app/public/cljs/logic.cljc`: no DOM, no interop, no dependencies. `views.cljc` is the same. So babashka loads both files, unchanged, and tests them as plain functions:
 
@@ -237,7 +237,7 @@ Requires only [babashka](https://babashka.org) for all three modes; every server
 - **`GET /api/dev-info`**: which optional dev features are on (`:ssr?`, `:nrepl`); the page uses it to load the REPL client.
 - **`/ws` websocket**: the server pushes `{:op :tick}` every 5 s (time and client count) to every browser.
 - **Hot reload**: edit and save `app/public/cljs/kitchen_sink.cljs` (or `logic.cljc`, `views.cljc`) → the server pushes `{:op :reload}` → the page re-evaluates the file with `scittle.core.eval_string`. State survives because it lives in `defonce` atoms. Try changing `ui-version`. A changed `logic.cljc` is reloaded by the server too, so browser and server validate with the same rules.
-- **Listens on 127.0.0.1 only** (it has no authentication); set `HOST=0.0.0.0` to reach it from another device. `bb serve-single` and `bb serve-static` do the same.
+- **Listens on 127.0.0.1 only** (it has no authentication); set `HOST=0.0.0.0` to reach it from another device. `bb serve-single` and `bb serve-static` do the same. It also refuses requests from other sites' pages (see *Supply chain and security*).
 
 That's the skeleton of a real app: add routes to `handler` in `server.clj`, add views and `api!` calls in the cljs file.
 
@@ -262,7 +262,7 @@ skills/scittle-replicant-webawesome/SKILL.md   concise Agent Skill for coding as
 test/
   unit_test.clj               `bb test`: logic.cljc and views.cljc as plain functions (no browser)
   kitchen_sink_test.py        98 interaction checks (Playwright), for any of the three versions
-  server_test.py              27 checks: validation, API, SSR, nREPL, websocket, client count, hot reload, single-file and static modes
+  server_test.py              33 checks: validation, request guard, API, SSR, nREPL, websocket, client count, hot reload, single-file and static modes
   csp_test.py                 the 98 checks again under a strict Content-Security-Policy
 bb.edn                        tasks: dev, dev-full, test, serve-static, build-single, serve-single
 ```
@@ -278,7 +278,7 @@ python3 test/kitchen_sink_test.py http://localhost:8091/index.html   # 98/98
 python3 test/kitchen_sink_test.py http://localhost:8092/static.html  # 98/98
 python3 test/csp_test.py                                             # 98/98 under a strict CSP, no violations
 PORT=8093 bb dev-full &                                              # optional: SSR and nREPL checks
-KS_SSR_URL=http://localhost:8093 python3 test/server_test.py         # 27/27 (22 without KS_SSR_URL)
+KS_SSR_URL=http://localhost:8093 python3 test/server_test.py         # 33/33 (26 without KS_SSR_URL)
 ```
 
 The servers and the unit tests are all bb; the browser tests are the one part that needs Python (Playwright). Optional env: `KS_CHROME=/path/to/chrome`, `KS_PROXY=http://host:port`.
@@ -348,13 +348,13 @@ What we found:
 - **No `'unsafe-inline'` for scripts.** The two inline `<script>`s (icon registration, `KS_MODE`) are allowed by hash; recompute when you edit them. `<script type="application/x-scittle">` blocks, inline or not, aren't JavaScript, so CSP doesn't apply to them, which also means **CSP doesn't restrict what ClojureScript the page evaluates**. Scittle loads `src` files with `fetch`, so `connect-src` decides where `.cljs` can come from.
 - **`style-src 'unsafe-inline'` is needed**: some Web Awesome components write inline `style` attributes at runtime. Replicant's `:style` maps go through the CSSOM and need no allowance (checked separately). The page's own `<style>` block could be hashed, but the components' attributes can't.
 - **`connect-src data:` is needed**: Web Awesome `fetch`es its built-in system icons (chevrons, close, check) from `data:` URLs.
-- Not tested under CSP: app mode. It needs the websocket in `connect-src` (`'self'` covers same-origin `ws:` in current browsers) and, under `bb dev-full`, `ws://localhost:1340` plus the `scittle.nrepl.js` URL.
+- Not tested under CSP: app mode. It needs the websocket in `connect-src` (`'self'` covers same-origin `ws:` in current browsers) and, under `bb dev-full`, the `scittle.nrepl.js` URL (its websocket is same-origin `/_nrepl`).
 
 **Development channels are code execution channels.** Keep them off anything public:
 
 - **Hot reload** makes the page evaluate whatever changes under `app/public/cljs/`. The server only pushes file paths it watches; browsers can't trigger it. Fine on your machine; don't run `server.clj` as-is on a server.
-- **The nREPL** (`bb dev-full`) evaluates anything your editor sends, in the page. Its nREPL port listens on localhost only, but sci.nrepl's websocket on `:1340` listens on all interfaces and checks no `Origin`: any web page you visit, or anyone on your network, can connect to it and take over the page's side of the channel (receiving what your editor sends). Run `bb dev-full` only while you use it.
-- **The app server** has no authentication; that's why it binds to `127.0.0.1` unless you set `HOST`.
+- **The nREPL** (`bb dev-full`) evaluates anything your editor sends, in the page; anything that can talk to its nREPL port can run code in your page. That port listens on localhost only. sci.nrepl's own websocket server (which `start!` would open on `:1340`, on all interfaces, with no `Origin` check: any page you visit could take over the page side of the channel) isn't used: `server.clj` serves the page side itself at `/_nrepl`, behind the guard below, and only accepts it with this page's own `Origin`.
+- **The app server** has no authentication, so it binds to `127.0.0.1` unless you set `HOST`. Binding to loopback doesn't stop the browser itself, though: every web page you open can send requests to `localhost`. So `server.clj` refuses (403) any request that carries another site's `Origin` (websocket handshakes, POSTs, cross-origin fetches) and, while bound to loopback, any `Host` other than `localhost`/`127.0.0.1`/`[::1]` (that's how DNS-rebinding attacks show up). `test/server_test.py` checks both, for `/ws`, `/api/profile`, `/` and `/_nrepl`. The two static servers serve only files and have no guard.
 
 ## Credits and licenses
 

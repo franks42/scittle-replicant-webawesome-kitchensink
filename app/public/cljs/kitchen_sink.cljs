@@ -337,12 +337,15 @@
      "or reload: the page comes back on the same route. Deep link: " [:code "…/#/media"] "."]]])
 
 ;; A REPL into the running page (app mode, `bb dev-full`): the server starts
-;; sci.nrepl's nREPL server (for your editor) and a websocket (for this page);
-;; this page loads scittle.nrepl.js, which connects to that websocket.
+;; sci.nrepl's nREPL server (for your editor, localhost:1339) and serves a
+;; websocket at /_nrepl (for this page); this page loads scittle.nrepl.js,
+;; which connects to it.
 (defonce nrepl-script (atom nil))
 
 (defn nrepl-status! [st] (swap! state assoc-in [:srv :nrepl-ws] st))
 
+;; websocket-port is this server's own port: the page side of the nREPL is
+;; served at /_nrepl by server.clj (same origin, guarded), not by sci.nrepl.
 (defn load-nrepl! [{:keys [websocket-port]}]
   (when-not @nrepl-script
     (set! (.-SCITTLE_NREPL_WEBSOCKET_PORT js/window) websocket-port)
@@ -379,7 +382,7 @@
         :else
         [:div.row
          [:wa-badge {:id "nrepl-status" :variant (if (= nrepl-ws "open") "success" "warning")}
-          (str "page ↔ ws :" (:websocket-port n) " " (or nrepl-ws "loading"))]
+          (str "page ↔ /_nrepl " (or nrepl-ws "loading"))]
          [:wa-badge {:variant "neutral"} (str "editor → localhost:" (:port n))]])
       [:div.muted "Connect your editor's nREPL client to that port (Calva, CIDER, Conjure, ...) and evaluate in "
        [:code "kitchen_sink.cljs"] ", e.g. " [:code "(swap! kitchen-sink/state assoc :name \"REPL\")"]

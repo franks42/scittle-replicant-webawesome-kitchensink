@@ -35,6 +35,27 @@ def bdec(buf, i=0):
         return (items if c == b"l" else dict(zip(items[::2], items[1::2]))), i + 1
     j = buf.index(b":", i); n = int(buf[i:j]); return buf[j+1:j+1+n].decode(), j + 1 + n
 
+def raw_status(url, path, headers, method="GET", websocket=False):
+    """Status code of one hand-made HTTP request (to send any Host/Origin we like)."""
+    from urllib.parse import urlparse
+    u = urlparse(url)
+    hdrs = dict(headers)
+    if websocket:
+        hdrs.update({"Upgrade": "websocket", "Connection": "Upgrade",
+                     "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==", "Sec-WebSocket-Version": "13"})
+    if method == "POST":
+        hdrs.update({"Content-Type": "application/edn", "Content-Length": "13"})
+    req = f"{method} {path} HTTP/1.1\r\n" + "".join(f"{k}: {v}\r\n" for k, v in hdrs.items()) + "\r\n"
+    with socket.create_connection((u.hostname, u.port), timeout=5) as sk:
+        sk.sendall(req.encode() + (b'{:name "Eve"}' if method == "POST" else b""))
+        return int(sk.recv(200).split(b" ")[1])
+
+def port_open(port):
+    try:
+        socket.create_connection(("localhost", port), timeout=1).close(); return True
+    except OSError:
+        return False
+
 def nrepl_eval(port, code, timeout=10):
     """Send one eval, collect responses until status contains done."""
     with socket.create_connection(("localhost", port), timeout=timeout) as sk:
@@ -96,6 +117,15 @@ async def main():
         rows = await ev("document.querySelectorAll('#profiles-table tr').length - 1")
         check("GET /api/profiles renders table", rows >= 1, f"{rows} rows")
         check("a good save clears the server errors", not await ev("!!document.getElementById('server-errors')"))
+        # the request guard: other sites' Origins and DNS-rebinding Hosts get 403
+        hp = APP.split("//")[1].split("/")[0]                    # localhost:8090
+        evil = {"Host": hp, "Origin": "https://evil.example"}
+        check("guard: own-origin page request allowed", raw_status(APP, "/", {"Host": hp}) == 200)
+        check("guard: websocket from another site refused", raw_status(APP, "/ws", evil, websocket=True) == 403)
+        check("guard: POST from another site refused", raw_status(APP, "/api/profile", evil, method="POST") == 403)
+        rebind_host = "evil.example:" + hp.split(":")[1]
+        check("guard: DNS-rebinding Host refused", raw_status(APP, "/", {"Host": rebind_host}) == 403)
+
         r = await pg.request.post(APP.rstrip("/") + "/api/profile", data="{:name \"\" :qty 7}", headers={"Content-Type": "application/edn"})
         body = await r.text()
         check("API validates with the shared rules (400 + field messages)",
@@ -117,6 +147,13 @@ async def main():
             rp = await ctx.new_page(); await rp.goto(ssr + "/"); await rp.wait_for_function("window.__ready===true", timeout=60000)
             await rp.wait_for_function("document.querySelector('#nrepl-status')?.textContent.includes('open')", timeout=15000)
             check("bb dev-full: page connects to the nREPL websocket", True, await rp.evaluate("document.querySelector('#nrepl-status').textContent"))
+            shp = ssr.split("//")[1].split("/")[0]
+            check("nREPL websocket refuses other sites, no-Origin clients and rebinding",
+                  [raw_status(ssr, "/_nrepl", {"Host": shp, "Origin": "https://evil.example"}, websocket=True),
+                   raw_status(ssr, "/_nrepl", {"Host": shp}, websocket=True),
+                   raw_status(ssr, "/_nrepl", {"Host": "evil.example:" + shp.split(":")[1],
+                                               "Origin": "http://evil.example:" + shp.split(":")[1]}, websocket=True)] == [403, 403, 403])
+            check("no sci.nrepl websocket server on :1340", not port_open(1340))
             port = int(os.environ.get("KS_NREPL_PORT", "1339"))
             out = await asyncio.to_thread(nrepl_eval, port, '(swap! kitchen-sink/state assoc :name "From nREPL") (:name @kitchen-sink/state)')
             values = [m["value"] for m in out if "value" in m]
